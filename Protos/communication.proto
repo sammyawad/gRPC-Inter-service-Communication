@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+option csharp_namespace = "GrpcService.Protos";
+
+package communication;
+
+// Service definition for inter-service communication
+service CommunicationService {
+  // Unary RPC - Simple request-response
+  rpc SendMessage (MessageRequest) returns (MessageResponse);
+  
+  // Server streaming RPC - Client gets a stream of responses
+  rpc GetMessages (Empty) returns (stream MessageResponse);
+  
+  // Client streaming RPC - Client sends a stream of messages
+  rpc SendMultipleMessages (stream MessageRequest) returns (MessageSummary);
+  
+  // Bidirectional streaming RPC
+  rpc Chat (stream ChatMessage) returns (stream ChatMessage);
+  
+  // Health check endpoint
+  rpc HealthCheck (Empty) returns (HealthResponse);
+}
+
+// Message definitions
+message MessageRequest {
+  string sender_id = 1;
+  string content = 2;
+  int64 timestamp = 3;
+  MessageType type = 4;
+}
+
+message MessageResponse {
+  string message_id = 1;
+  string sender_id = 2;
+  string content = 3;
+  int64 timestamp = 4;
+  bool success = 5;
+  string error_message = 6;
+}
+
+message ChatMessage {
+  string user_id = 1;
+  string message = 2;
+  int64 timestamp = 3;
+}
+
+message MessageSummary {
+  int32 total_messages = 1;
+  int32 successful_messages = 2;
+  int32 failed_messages = 3;
+  repeated string message_ids = 4;
+}
+
+message HealthResponse {
+  string status = 1;
+  string server_id = 2;
+  int64 timestamp = 3;
+}
+
+message Empty {
+}
+
+enum MessageType {
+  INFO = 0;
+  WARNING = 1;
+  ERROR = 2;
+  DEBUG = 3;
+}
