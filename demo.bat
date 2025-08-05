@@ -5,7 +5,7 @@ echo ===========================================
 echo.
 
 echo Building the project...
-dotnet build
+dotnet build GrpcService.csproj
 if %ERRORLEVEL% neq 0 (
     echo Build failed!
     pause

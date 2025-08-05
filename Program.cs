@@ -69,6 +69,7 @@ public class Program
             options.ListenLocalhost(int.Parse(port), listenOptions =>
             {
                 listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
+                listenOptions.UseHttps();
             });
         });
 
