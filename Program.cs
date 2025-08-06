@@ -58,32 +58,14 @@ public class Program
     private static async Task RunServerAsync(string port)
     {
         var builder = WebApplication.CreateBuilder();
-
-        // Add services
+        
         builder.Services.AddGrpc();
-        builder.Services.AddLogging(configure => configure.AddConsole());
-
-        // Configure Kestrel to use HTTP/2
-        builder.WebHost.ConfigureKestrel(options =>
-        {
-            options.ListenLocalhost(int.Parse(port), listenOptions =>
-            {
-                listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
-                listenOptions.UseHttps();
-            });
-        });
-
+        builder.WebHost.UseUrls($"https://localhost:{port}");
+        
         var app = builder.Build();
-
-        // Configure the HTTP request pipeline
         app.MapGrpcService<CommunicationServiceImpl>();
-
-        app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. " +
-                             "To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
-
+        
         Console.WriteLine($"gRPC Server starting on port {port}...");
-        Console.WriteLine("Press Ctrl+C to stop the server");
-
         await app.RunAsync();
     }
 
