@@ -1,4 +1,4 @@
-using Grpc.Net.Client;
+using Grpc.Net.Client; //https://www.nuget.org/packages/Grpc.Net.Client
 using GrpcService.Protos;
 using Microsoft.Extensions.Logging;
 
@@ -15,7 +15,7 @@ public class GrpcClientService
         _clientId = Environment.MachineName + "_Client_" + Guid.NewGuid().ToString("N")[..8];
     }
 
-    public async Task RunClientAsync(string serverAddress, string mode)
+    public async Task RunBidirectionalCommunicationAsync(string serverAddress)
     {
         using var channel = GrpcChannel.ForAddress(serverAddress);
         var client = new CommunicationService.CommunicationServiceClient(channel);
@@ -27,36 +27,14 @@ public class GrpcClientService
         {
             // Health check first
             await PerformHealthCheck(client);
-
-            switch (mode.ToLower())
-            {
-                case "unary":
-                    await TestUnaryCall(client);
-                    break;
-                case "serverstream":
-                    await TestServerStreaming(client);
-                    break;
-                case "clientstream":
-                    await TestClientStreaming(client);
-                    break;
-                case "chat":
-                    await TestBidirectionalStreaming(client);
-                    break;
-                case "all":
-                    await TestUnaryCall(client);
-                    await Task.Delay(2000);
-                    await TestClientStreaming(client);
-                    await Task.Delay(2000);
-                    await TestServerStreaming(client);
-                    break;
-                default:
-                    await TestUnaryCall(client);
-                    break;
-            }
+            
+            // Run bidirectional streaming communication
+            await StartBidirectionalChat(client);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during client operation");
+            _logger.LogError(ex, "Error during bidirectional communication");
+            throw;
         }
     }
 
@@ -68,83 +46,9 @@ public class GrpcClientService
         _logger.LogInformation($"Server Health: {healthResponse.Status}, Server ID: {healthResponse.ServerId}");
     }
 
-    private async Task TestUnaryCall(CommunicationService.CommunicationServiceClient client)
+    private async Task StartBidirectionalChat(CommunicationService.CommunicationServiceClient client)
     {
-        _logger.LogInformation("Testing unary RPC call...");
-
-        var request = new MessageRequest
-        {
-            SenderId = _clientId,
-            Content = "Hello from gRPC client!",
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            Type = MessageType.Info
-        };
-
-        var response = await client.SendMessageAsync(request);
-        
-        _logger.LogInformation($"Received response - ID: {response.MessageId}, Content: {response.Content}, Success: {response.Success}");
-    }
-
-    private async Task TestServerStreaming(CommunicationService.CommunicationServiceClient client)
-    {
-        _logger.LogInformation("Testing server streaming RPC...");
-
-        using var call = client.GetMessages(new Empty());
-        var messageCount = 0;
-
-        try
-        {
-            while (await call.ResponseStream.MoveNext(CancellationToken.None))
-            {
-                var message = call.ResponseStream.Current;
-                messageCount++;
-                _logger.LogInformation($"Streamed message {messageCount} - ID: {message.MessageId}, Content: {message.Content}");
-                
-                if (messageCount >= 5) // Limit to first 5 messages for demo
-                {
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning($"Server streaming ended: {ex.Message}");
-        }
-
-        _logger.LogInformation($"Received {messageCount} messages from server stream");
-    }
-
-    private async Task TestClientStreaming(CommunicationService.CommunicationServiceClient client)
-    {
-        _logger.LogInformation("Testing client streaming RPC...");
-
-        using var call = client.SendMultipleMessages();
-
-        // Send multiple messages
-        for (int i = 1; i <= 5; i++)
-        {
-            var request = new MessageRequest
-            {
-                SenderId = _clientId,
-                Content = $"Streamed message {i} from client",
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                Type = MessageType.Info
-            };
-
-            await call.RequestStream.WriteAsync(request);
-            _logger.LogInformation($"Sent message {i}");
-            await Task.Delay(500); // Small delay between messages
-        }
-
-        await call.RequestStream.CompleteAsync();
-        var summary = await call;
-
-        _logger.LogInformation($"Client streaming completed - Total: {summary.TotalMessages}, Success: {summary.SuccessfulMessages}, Failed: {summary.FailedMessages}");
-    }
-
-    private async Task TestBidirectionalStreaming(CommunicationService.CommunicationServiceClient client)
-    {
-        _logger.LogInformation("Testing bidirectional streaming (chat)...");
+        _logger.LogInformation("Starting bidirectional streaming chat...");
 
         using var call = client.Chat();
 
@@ -156,7 +60,7 @@ public class GrpcClientService
                 while (await call.ResponseStream.MoveNext(CancellationToken.None))
                 {
                     var message = call.ResponseStream.Current;
-                    _logger.LogInformation($"Chat message from {message.UserId}: {message.Message}");
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {message.UserId}: {message.Message}");
                 }
             }
             catch (Exception ex)
@@ -165,24 +69,39 @@ public class GrpcClientService
             }
         });
 
-        // Send some chat messages
-        for (int i = 1; i <= 3; i++)
-        {
-            var chatMessage = new ChatMessage
-            {
-                UserId = _clientId,
-                Message = $"Hello from client, message {i}",
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-            };
+        // Interactive message sending
+        Console.WriteLine($"\n=== Chat Started (Client ID: {_clientId}) ===");
+        Console.WriteLine("Type your messages (press 'quit' to exit):");
+        Console.WriteLine("==========================================");
 
-            await call.RequestStream.WriteAsync(chatMessage);
-            _logger.LogInformation($"Sent chat message {i}");
-            await Task.Delay(2000);
+        string? input;
+        while ((input = Console.ReadLine()) != null && input.ToLower() != "quit")
+        {
+            if (!string.IsNullOrWhiteSpace(input))
+            {
+                var chatMessage = new ChatMessage
+                {
+                    UserId = _clientId,
+                    Message = input,
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                };
+
+                try
+                {
+                    await call.RequestStream.WriteAsync(chatMessage);
+                    _logger.LogInformation($"Sent: {input}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"Failed to send message: {ex.Message}");
+                    break;
+                }
+            }
         }
 
         await call.RequestStream.CompleteAsync();
         await readTask;
 
-        _logger.LogInformation("Bidirectional streaming completed");
+        _logger.LogInformation("Bidirectional streaming chat completed");
     }
 }

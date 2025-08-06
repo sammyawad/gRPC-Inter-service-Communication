@@ -1,9 +1,5 @@
 using GrpcService.Services;
 using GrpcService.Client;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace GrpcService;
 
@@ -18,19 +14,12 @@ public class Program
         var mode = configuration["mode"] ?? "server";
         var port = configuration["port"] ?? "5000";
         var serverAddress = configuration["server"] ?? $"https://localhost:{port}";
-        var clientMode = configuration["client-mode"] ?? "unary";
 
-        Console.WriteLine("=== gRPC Inter-service Communication Demo ===");
+        Console.WriteLine("=== gRPC Bidirectional Communication Demo ===");
         Console.WriteLine($"Mode: {mode}");
         Console.WriteLine($"Port: {port}");
         Console.WriteLine($"Server Address: {serverAddress}");
-        
-        if (mode.ToLower() == "client")
-        {
-            Console.WriteLine($"Client Mode: {clientMode}");
-        }
-        
-        Console.WriteLine("==========================================");
+        Console.WriteLine("==============================================");
 
         try
         {
@@ -40,7 +29,7 @@ public class Program
             }
             else if (mode.ToLower() == "client")
             {
-                await RunClientAsync(serverAddress, clientMode);
+                await RunClientAsync(serverAddress);
             }
             else
             {
@@ -69,7 +58,7 @@ public class Program
         await app.RunAsync();
     }
 
-    private static async Task RunClientAsync(string serverAddress, string clientMode)
+    private static async Task RunClientAsync(string serverAddress)
     {
         var services = new ServiceCollection();
         services.AddLogging(configure => configure.AddConsole());
@@ -80,9 +69,9 @@ public class Program
 
         Console.WriteLine($"Starting gRPC client, connecting to {serverAddress}...");
         
-        await clientService.RunClientAsync(serverAddress, clientMode);
+        await clientService.RunBidirectionalCommunicationAsync(serverAddress);
         
-        Console.WriteLine("Client operations completed. Press any key to exit.");
+        Console.WriteLine("Communication completed. Press any key to exit.");
         Console.ReadKey();
     }
 
@@ -94,18 +83,12 @@ public class Program
         Console.WriteLine("    dotnet run --mode=server [--port=5000]");
         Console.WriteLine();
         Console.WriteLine("  Client mode:");
-        Console.WriteLine("    dotnet run --mode=client [--server=https://localhost:5000] [--client-mode=unary|serverstream|clientstream|chat|all]");
+        Console.WriteLine("    dotnet run --mode=client [--server=https://localhost:5000]");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  dotnet run --mode=server --port=5001");
-        Console.WriteLine("  dotnet run --mode=client --server=https://localhost:5001 --client-mode=chat");
-        Console.WriteLine("  dotnet run --mode=client --server=https://localhost:5000 --client-mode=all");
+        Console.WriteLine("  dotnet run --mode=client --server=https://localhost:5001");
         Console.WriteLine();
-        Console.WriteLine("Client modes:");
-        Console.WriteLine("  unary       - Simple request-response");
-        Console.WriteLine("  serverstream - Server streaming messages");
-        Console.WriteLine("  clientstream - Client streaming messages");
-        Console.WriteLine("  chat        - Bidirectional streaming (chat)");
-        Console.WriteLine("  all         - Run unary, client stream, then server stream");
+        Console.WriteLine("Note: This demo uses bidirectional streaming for real-time communication.");
     }
 }
