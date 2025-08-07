@@ -3,6 +3,7 @@ using GrpcService.Protos;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
+//example https://github.com/grpc/grpc-dotnet/blob/master/examples/Mailer/Server/Services/MailerService.cs
 namespace GrpcService.Services;
 
 public class CommunicationServiceImpl : CommunicationService.CommunicationServiceBase
@@ -19,8 +20,8 @@ public class CommunicationServiceImpl : CommunicationService.CommunicationServic
     }
 
     // Bidirectional streaming method - matches your proto file
-    public override async Task Chat(IAsyncStreamReader<ChatMessage> requestStream, 
-                                  IServerStreamWriter<ChatMessage> responseStream, 
+    public override async Task Chat(IAsyncStreamReader<ChatMessage> requestStream,
+                                  IServerStreamWriter<ChatMessage> responseStream,
                                   ServerCallContext context)
     {
         var clientId = context.GetHttpContext()?.Connection?.Id ?? Guid.NewGuid().ToString("N")[..8];
