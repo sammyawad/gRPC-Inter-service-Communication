@@ -10,9 +10,12 @@ export class ChatService {
     try {
       this.chatState.connecting = true
 
+      // Use environment-aware backend URL
+      const backendUrl = this.getBackendUrl()
+      
       // Create SignalR connection to your C# backend
       this.connection = new signalR.HubConnectionBuilder()
-        .withUrl("http://localhost:5000/chathub")
+        .withUrl(`${backendUrl}/chathub`)
         .withAutomaticReconnect()
         .build()
 
@@ -122,6 +125,21 @@ export class ChatService {
       this.chatState.messages = []
       this.chatState.onlineUsers = []
       this.chatState.currentUser.username = ''
+      console.log("Disconnected from chat")
+    }
+  }
+
+  getBackendUrl() {
+    // Check if we're running in Docker (production) or development
+    if (window.location.hostname === 'localhost' && window.location.port === '3000') {
+      // Running in Docker - backend is accessible via host
+      return 'http://localhost:5000'
+    } else if (window.location.hostname === 'localhost' && window.location.port === '5173') {
+      // Development mode
+      return 'http://localhost:5000'
+    } else {
+      // Production or other environments
+      return 'http://localhost:5000'
     }
   }
 }

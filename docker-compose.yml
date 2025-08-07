@@ -1,0 +1,40 @@
+services:
+  # gRPC Backend Service
+  grpc-backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: grpc-chat-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5000
+    networks:
+      - chat-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Vue.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: grpc-chat-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - grpc-backend
+    networks:
+      - chat-network
+
+networks:
+  chat-network:
+    driver: bridge
+
+volumes:
+  chat-data:

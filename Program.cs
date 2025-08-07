@@ -60,7 +60,11 @@ public class Program
         {
             options.AddPolicy("AllowFrontend", policy =>
             {
-                policy.WithOrigins("http://localhost:5173") // Vue dev server
+                policy.WithOrigins(
+                        "http://localhost:5173",  // Vue dev server
+                        "http://localhost:3000",  // Docker frontend
+                        "http://frontend:80"      // Docker internal network
+                      )
                       .AllowAnyHeader()
                       .AllowAnyMethod()
                       .AllowCredentials();
