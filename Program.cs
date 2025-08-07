@@ -1,5 +1,7 @@
 using GrpcService.Services;
 using GrpcService.Client;
+using GrpcService.Hubs;  
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 namespace GrpcService;
 
@@ -48,13 +50,44 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder();
         
+        // Your existing gRPC service
         builder.Services.AddGrpc();
-        builder.WebHost.UseUrls($"https://localhost:{port}");
+        
+        // WebSocket 
+        builder.Services.AddSignalR();
+        
+        builder.Services.AddCors(options =>
+        {
+            options.AddPolicy("AllowFrontend", policy =>
+            {
+                policy.WithOrigins("http://localhost:5173") // Vue dev server
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .AllowCredentials();
+            });
+        });
+
+        // Configure Kestrel to support both gRPC (HTTP/2) and WebSocket (HTTP/1.1)
+        builder.Services.Configure<KestrelServerOptions>(options =>
+        {
+            options.ListenLocalhost(int.Parse(port), o => o.Protocols = HttpProtocols.Http1AndHttp2);
+        });
+        // ← END of new services ↑
+        
+        builder.WebHost.UseUrls($"http://localhost:{port}");
         
         var app = builder.Build();
+        app.UseCors("AllowFrontend");
         app.MapGrpcService<CommunicationServiceImpl>();
+        app.MapHub<ChatWebSocketHub>("/chathub");
+        
+        // ← ADD health check endpoint ↓
+        app.MapGet("/health", () => new { Status = "Healthy", Server = "gRPC Chat Demo" });
         
         Console.WriteLine($"gRPC Server starting on port {port}...");
+        Console.WriteLine($"WebSocket endpoint available at: wss://localhost:{port}/chathub");
+        Console.WriteLine($"Health check available at: https://localhost:{port}/health");
+        
         await app.RunAsync();
     }
 
@@ -81,14 +114,17 @@ public class Program
         Console.WriteLine("Usage:");
         Console.WriteLine("  Server mode:");
         Console.WriteLine("    dotnet run --mode=server [--port=5000]");
+        Console.WriteLine("    - Starts gRPC server + WebSocket for browser clients");
         Console.WriteLine();
         Console.WriteLine("  Client mode:");
         Console.WriteLine("    dotnet run --mode=client [--server=https://localhost:5000]");
+        Console.WriteLine("    - Connects as gRPC client for testing");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  dotnet run --mode=server --port=5001");
         Console.WriteLine("  dotnet run --mode=client --server=https://localhost:5001");
         Console.WriteLine();
         Console.WriteLine("Note: This demo uses bidirectional streaming for real-time communication.");
+        Console.WriteLine("      Browser clients connect via WebSocket, console clients via gRPC.");
     }
 }
