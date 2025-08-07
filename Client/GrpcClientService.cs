@@ -17,7 +17,17 @@ public class GrpcClientService
 
     public async Task RunBidirectionalCommunicationAsync(string serverAddress)
     {
-        using var channel = GrpcChannel.ForAddress(serverAddress);
+        // Create HTTP handler to bypass SSL certificate validation (development only)
+        var httpHandler = new HttpClientHandler();
+        httpHandler.ServerCertificateCustomValidationCallback = 
+            HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+
+        // Create gRPC channel with custom HTTP handler
+        using var channel = GrpcChannel.ForAddress(serverAddress, new GrpcChannelOptions
+        {
+            HttpHandler = httpHandler
+        });
+        
         var client = new CommunicationService.CommunicationServiceClient(channel);
 
         _logger.LogInformation($"Connected to gRPC server at {serverAddress}");
