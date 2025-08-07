@@ -2,7 +2,7 @@
 
 A real-time chat application demonstrating gRPC inter-service communication with Protocol Buffers, featuring both console and web clients.
 
-## What We Built
+## What I Built
 
 - **gRPC Server**: ASP.NET Core server with bidirectional streaming for real-time chat
 - **Console Client**: .NET console application for terminal-based chatting  

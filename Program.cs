@@ -74,23 +74,34 @@ public class Program
         // Configure Kestrel to support both gRPC (HTTP/2) and WebSocket (HTTP/1.1)
         builder.Services.Configure<KestrelServerOptions>(options =>
         {
-            options.ListenLocalhost(int.Parse(port), o => o.Protocols = HttpProtocols.Http1AndHttp2);
+            // Check if running in Docker (Production environment)
+            if (builder.Environment.IsProduction())
+            {
+                options.ListenAnyIP(int.Parse(port), o => o.Protocols = HttpProtocols.Http1AndHttp2);
+            }
+            else
+            {
+                options.ListenLocalhost(int.Parse(port), o => o.Protocols = HttpProtocols.Http1AndHttp2);
+            }
         });
-        // ← END of new services ↑
         
-        builder.WebHost.UseUrls($"http://localhost:{port}");
+        // Only set URLs for development - let Docker environment variable take precedence
+        if (!builder.Environment.IsProduction())
+        {
+            builder.WebHost.UseUrls($"http://localhost:{port}");
+        }
         
         var app = builder.Build();
         app.UseCors("AllowFrontend");
         app.MapGrpcService<CommunicationServiceImpl>();
         app.MapHub<ChatWebSocketHub>("/chathub");
         
-        // ← ADD health check endpoint ↓
+        // ADD health check endpoint
         app.MapGet("/health", () => new { Status = "Healthy", Server = "gRPC Chat Demo" });
         
         Console.WriteLine($"gRPC Server starting on port {port}...");
-        Console.WriteLine($"WebSocket endpoint available at: wss://localhost:{port}/chathub");
-        Console.WriteLine($"Health check available at: https://localhost:{port}/health");
+        Console.WriteLine($"WebSocket endpoint available at: ws://localhost:{port}/chathub");
+        Console.WriteLine($"Health check available at: http://localhost:{port}/health");
         
         await app.RunAsync();
     }

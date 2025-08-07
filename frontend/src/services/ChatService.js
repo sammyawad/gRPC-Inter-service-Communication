@@ -130,15 +130,18 @@ export class ChatService {
   }
 
   getBackendUrl() {
-    // Check if we're running in Docker (production) or development
-    if (window.location.hostname === 'localhost' && window.location.port === '3000') {
-      // Running in Docker - backend is accessible via host
+    // Check if we're running in Docker vs development
+    const isDocker = window.location.port === '3000'
+    const isDev = window.location.port === '5173'
+    
+    if (isDocker) {
+      // Browser can reach backend via host machine port mapping
       return 'http://localhost:5000'
-    } else if (window.location.hostname === 'localhost' && window.location.port === '5173') {
-      // Development mode
+    } else if (isDev) {
+      // Development mode (Vite dev server)
       return 'http://localhost:5000'
     } else {
-      // Production or other environments
+      // Fallback
       return 'http://localhost:5000'
     }
   }

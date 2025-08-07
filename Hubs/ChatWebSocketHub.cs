@@ -1,3 +1,4 @@
+//https://learn.microsoft.com/en-us/aspnet/core/signalr/hubs?view=aspnetcore-9.0
 using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
 
