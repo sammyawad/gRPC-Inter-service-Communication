@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Grpc.Net.Client; //https://www.nuget.org/packages/Grpc.Net.Client
 using GrpcService.Protos;
 using Microsoft.Extensions.Logging;
+using Grpc.Core;
 
 namespace GrpcService.Client;
 
@@ -16,7 +17,7 @@ public class GrpcClientService
         _clientId = Environment.MachineName + "_Client_" + Guid.NewGuid().ToString("N")[..8];
     }
 
-    public async Task RunBidirectionalCommunicationAsync(string serverAddress, string wave)
+    public async Task RunBidirectionalCommunicationAsync(string serverAddress, string wave, CancellationToken cancellationToken)
     {
         // Create HTTP handler to bypass SSL certificate validation (development only)
         var httpHandler = new HttpClientHandler();
@@ -40,7 +41,11 @@ public class GrpcClientService
             await PerformHealthCheck(client);
             
             // Start data generation stream
-            await StartDataGeneration(client, wave);
+            await StartDataGeneration(client, wave, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Client operation canceled.");
         }
         catch (Exception ex)
         {
@@ -57,7 +62,7 @@ public class GrpcClientService
         _logger.LogInformation($"Server Health: {healthResponse.Status}, Server ID: {healthResponse.ServerId}");
     }
 
-    private async Task StartDataGeneration(CommunicationService.CommunicationServiceClient client, string wave)
+    private async Task StartDataGeneration(CommunicationService.CommunicationServiceClient client, string wave, CancellationToken cancellationToken)
     {
         _logger.LogInformation($"Starting high-precision decimal data generation (1ms interval), wave={wave}...");
 
@@ -68,27 +73,35 @@ public class GrpcClientService
         {
             try
             {
-                while (await call.ResponseStream.MoveNext(CancellationToken.None))
+                while (await call.ResponseStream.MoveNext(cancellationToken))
                 {
                     var message = call.ResponseStream.Current;
                     _logger.LogDebug($"Received echo from server: fraction={message.PreciseFraction}");
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // Expected during shutdown
+            }
+            catch (RpcException rex) when (rex.StatusCode == StatusCode.Cancelled)
+            {
+                // Expected when the call is cancelled by the client during Ctrl+C
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning($"Response reading ended: {ex.Message}");
             }
-        });
+        }, cancellationToken);
 
         // Generate a deterministic decimal in [0,1] with high precision using integer math only.
         // We use a 18-digit fixed-point scale for precision without floating conversions.
         var sw = Stopwatch.StartNew();
 
         // Generate selected waveform with 1 second period
-        while (true)
+        while (!cancellationToken.IsCancellationRequested)
         {
             // Coarse 1ms pacing
-            await Task.Delay(1);
+            await Task.Delay(1, cancellationToken);
 
             // Phase in [0,1)
             double phase = (sw.Elapsed.TotalMilliseconds % 1000.0) / 1000.0;
@@ -124,7 +137,17 @@ public class GrpcClientService
 
             try
             {
-                await call.RequestStream.WriteAsync(dataMessage);
+                await call.RequestStream.WriteAsync(dataMessage, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when shutting down via Ctrl+C
+                break;
+            }
+            catch (RpcException rex) when (rex.StatusCode == StatusCode.Cancelled)
+            {
+                // Expected when the client cancels the streaming call; do not log as error
+                break;
             }
             catch (Exception ex)
             {
@@ -133,8 +156,27 @@ public class GrpcClientService
             }
         }
 
-        await call.RequestStream.CompleteAsync();
-        await readTask;
+        try
+        {
+            await call.RequestStream.CompleteAsync();
+        }
+        catch (RpcException rex) when (rex.StatusCode == StatusCode.Cancelled)
+        {
+            // Expected if the call is already cancelled/closed on shutdown
+        }
+        catch (Exception)
+        {
+            // Ignore completion errors during shutdown
+        }
+        
+        try
+        {
+            await readTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // Ignore during shutdown
+        }
 
         _logger.LogInformation("Data generation stream completed");
     }

@@ -32,7 +32,19 @@ public class Program
             }
             else if (mode.ToLower() == "client")
             {
-                await RunClientAsync(serverAddress, wave);
+                using var cts = new CancellationTokenSource();
+                Console.CancelKeyPress += (sender, e) =>
+                {
+                    // Prevent immediate process termination; perform graceful shutdown instead
+                    e.Cancel = true;
+                    if (!cts.IsCancellationRequested)
+                    {
+                        Console.WriteLine("\nCtrl+C pressed. Shutting down client...");
+                        cts.Cancel();
+                    }
+                };
+
+                await RunClientAsync(serverAddress, wave, cts.Token);
             }
             else
             {
@@ -128,7 +140,7 @@ public class Program
         await app.RunAsync();
     }
 
-    private static async Task RunClientAsync(string serverAddress, string wave)
+    private static async Task RunClientAsync(string serverAddress, string wave, CancellationToken cancellationToken)
     {
         var services = new ServiceCollection();
         services.AddLogging(configure => configure.AddConsole());
@@ -139,10 +151,9 @@ public class Program
 
         Console.WriteLine($"Starting gRPC client, connecting to {serverAddress}...");
         
-        await clientService.RunBidirectionalCommunicationAsync(serverAddress, wave);
+        await clientService.RunBidirectionalCommunicationAsync(serverAddress, wave, cancellationToken);
         
-        Console.WriteLine("Communication completed. Press any key to exit.");
-        Console.ReadKey();
+        Console.WriteLine("Client stopped.");
     }
 
     private static void ShowUsage()

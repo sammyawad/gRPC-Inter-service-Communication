@@ -78,7 +78,7 @@ export class DataService {
       }
     })
 
-    // Presence updates
+    // Presence updates from SignalR hub (websocket viewers)
     this.connection.on("OnlineUsersUpdate", (list) => {
       try {
         if (!Array.isArray(list)) return
@@ -92,10 +92,35 @@ export class DataService {
         }
         this.dataState.clients = map
         this.dataState.clientOrder = order
-        // Prune any series that no longer have a connected client
-        this.pruneDisconnectedSeries()
+        // Do not prune series here; data senders are tracked via DataClient* events
       } catch (e) {
         console.warn('[DataService] failed handling OnlineUsersUpdate', e)
+      }
+    })
+
+    // Data-sending gRPC client presence events
+    this.connection.on("DataClientJoined", (u) => {
+      try {
+        const id = u?.UserId || u?.userId
+        if (!id) return
+        // Ensure presence entry for legend listing
+        if (!this.dataState.clients[id]) this.dataState.clients[id] = { username: u?.Username || id, avatar: '' }
+        if (!this.dataState.clientOrder.includes(id)) this.dataState.clientOrder.push(id)
+      } catch (e) {
+        console.warn('[DataService] failed handling DataClientJoined', e)
+      }
+    })
+
+    this.connection.on("DataClientLeft", (u) => {
+      try {
+        const id = u?.UserId || u?.userId
+        if (!id) return
+        delete this.dataState.clients[id]
+        const idx = this.dataState.clientOrder.indexOf(id)
+        if (idx >= 0) this.dataState.clientOrder.splice(idx, 1)
+        if (this.dataState.series[id]) delete this.dataState.series[id]
+      } catch (e) {
+        console.warn('[DataService] failed handling DataClientLeft', e)
       }
     })
 
