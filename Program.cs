@@ -16,6 +16,7 @@ public class Program
         var mode = configuration["mode"] ?? "server";
         var port = configuration["port"] ?? "5000";
         var serverAddress = configuration["server"] ?? $"https://localhost:{port}";
+        var wave = configuration["wave"] ?? "sine"; // sine | square | saw
 
         Console.WriteLine("=== gRPC Bidirectional Communication Demo ===");
         Console.WriteLine($"Mode: {mode}");
@@ -31,7 +32,7 @@ public class Program
             }
             else if (mode.ToLower() == "client")
             {
-                await RunClientAsync(serverAddress);
+                await RunClientAsync(serverAddress, wave);
             }
             else
             {
@@ -55,6 +56,9 @@ public class Program
         
         // WebSocket 
         builder.Services.AddSignalR();
+
+        // Data store for tracking client decimal values
+        builder.Services.AddSingleton<Services.DataStore>();
         
         builder.Services.AddCors(options =>
         {
@@ -62,6 +66,7 @@ public class Program
             {
                 policy.WithOrigins(
                         "http://localhost:5173",  // Vue dev server
+                        "http://localhost:5174",  // Alt Vue dev server
                         "http://localhost:3000",  // Docker frontend
                         "http://frontend:80"      // Docker internal network
                       )
@@ -77,21 +82,38 @@ public class Program
             // Check if running in Docker (Production environment)
             if (builder.Environment.IsProduction())
             {
+                // HTTP endpoint for health and SignalR
                 options.ListenAnyIP(int.Parse(port), o => o.Protocols = HttpProtocols.Http1AndHttp2);
+                // HTTPS endpoint dedicated to gRPC over HTTP/2
+                options.ListenAnyIP(5001, o =>
+                {
+                    o.UseHttps();
+                    o.Protocols = HttpProtocols.Http2;
+                });
             }
             else
             {
+                // HTTP endpoint for health and SignalR
                 options.ListenLocalhost(int.Parse(port), o => o.Protocols = HttpProtocols.Http1AndHttp2);
+                // HTTPS endpoint dedicated to gRPC over HTTP/2
+                options.ListenLocalhost(5001, o =>
+                {
+                    o.UseHttps();
+                    o.Protocols = HttpProtocols.Http2;
+                });
             }
         });
         
         // Only set URLs for development - let Docker environment variable take precedence
         if (!builder.Environment.IsProduction())
         {
+            // Keep HTTP on the chosen port for health checks and SignalR UI
             builder.WebHost.UseUrls($"http://localhost:{port}");
         }
         
         var app = builder.Build();
+        // Log endpoints for convenience
+        Console.WriteLine($"gRPC (HTTPS/2) endpoint at: https://localhost:5001");
         app.UseCors("AllowFrontend");
         app.MapGrpcService<CommunicationServiceImpl>();
         app.MapHub<ChatWebSocketHub>("/chathub");
@@ -106,7 +128,7 @@ public class Program
         await app.RunAsync();
     }
 
-    private static async Task RunClientAsync(string serverAddress)
+    private static async Task RunClientAsync(string serverAddress, string wave)
     {
         var services = new ServiceCollection();
         services.AddLogging(configure => configure.AddConsole());
@@ -117,7 +139,7 @@ public class Program
 
         Console.WriteLine($"Starting gRPC client, connecting to {serverAddress}...");
         
-        await clientService.RunBidirectionalCommunicationAsync(serverAddress);
+        await clientService.RunBidirectionalCommunicationAsync(serverAddress, wave);
         
         Console.WriteLine("Communication completed. Press any key to exit.");
         Console.ReadKey();

@@ -1,6 +1,7 @@
 //https://learn.microsoft.com/en-us/aspnet/core/signalr/hubs?view=aspnetcore-9.0
 using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Mvc;
 
 namespace GrpcService.Hubs
 {
@@ -47,11 +48,11 @@ namespace GrpcService.Hubs
             _logger.LogInformation($"User {username} joined via WebSocket");
         }
 
+        // Kept for compatibility, but now optional in a data-driven app
         public async Task SendMessage(string content)
         {
             if (_connectedUsers.TryGetValue(Context.ConnectionId, out var user))
             {
-                // Create message (this is where we bridge to your gRPC logic)
                 var message = new
                 {
                     Id = Guid.NewGuid().ToString(),
@@ -63,12 +64,22 @@ namespace GrpcService.Hubs
                     UserId = Context.ConnectionId
                 };
 
-                // Broadcast to all WebSocket clients
-                // This mimics what your gRPC bidirectional streaming does
                 await Clients.All.SendAsync("ReceiveMessage", message);
-
                 _logger.LogInformation($"Message from {user.Username}: {content}");
             }
+        }
+
+        // Returns recent history per client for chart hydration
+        public Task<object> GetCurrentData([FromServices] GrpcService.Services.DataStore dataStore)
+        {
+            var history = dataStore.SnapshotHistory()
+                .Select(series => new
+                {
+                    UserId = series.Key,
+                    Points = series.Value.Select(p => new { Timestamp = p.Timestamp, Value = p.Value }).ToList()
+                })
+                .ToList<object>();
+            return Task.FromResult<object>(history);
         }
 
         public async Task SendTypingIndicator(bool isTyping)

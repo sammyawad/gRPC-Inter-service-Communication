@@ -2,6 +2,7 @@ using Grpc.Core;
 using GrpcService.Protos;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using Microsoft.AspNetCore.SignalR;
 
 //example https://github.com/grpc/grpc-dotnet/blob/master/examples/Mailer/Server/Services/MailerService.cs
 namespace GrpcService.Services;
@@ -11,12 +12,16 @@ public class CommunicationServiceImpl : CommunicationService.CommunicationServic
     private readonly ILogger<CommunicationServiceImpl> _logger;
     private readonly string _serverId;
     private readonly ConcurrentDictionary<string, IServerStreamWriter<ChatMessage>> _chatClients;
+    private readonly DataStore _dataStore;
+    private readonly IHubContext<GrpcService.Hubs.ChatWebSocketHub> _hubContext;
 
-    public CommunicationServiceImpl(ILogger<CommunicationServiceImpl> logger)
+    public CommunicationServiceImpl(ILogger<CommunicationServiceImpl> logger, DataStore dataStore, IHubContext<GrpcService.Hubs.ChatWebSocketHub> hubContext)
     {
         _logger = logger;
         _serverId = Environment.MachineName + "_Server_" + Guid.NewGuid().ToString("N")[..8];
         _chatClients = new ConcurrentDictionary<string, IServerStreamWriter<ChatMessage>>();
+        _dataStore = dataStore;
+        _hubContext = hubContext;
     }
 
     // Bidirectional streaming method - matches your proto file
@@ -44,9 +49,19 @@ public class CommunicationServiceImpl : CommunicationService.CommunicationServic
             // Process incoming messages using modern pattern
             await foreach (var message in requestStream.ReadAllAsync())
             {
-                _logger.LogInformation($"Broadcasting message from {message.UserId}: {message.Message}");
+                // Try to parse precise decimal and update data store and broadcast via SignalR
+                var value = message.PreciseFractionDecimal;
+                if (value.HasValue)
+                {
+                    _dataStore.Update(message.UserId, value.Value);
+                    await _hubContext.Clients.All.SendAsync("DataUpdated", new {
+                        UserId = message.UserId,
+                        Value = value.Value,
+                        Timestamp = DateTime.UtcNow
+                    });
+                }
 
-                // Broadcast to all connected clients
+                // Optional: also echo back to gRPC clients
                 await BroadcastToAllClients(message);
             }
         }

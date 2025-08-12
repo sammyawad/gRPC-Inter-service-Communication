@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Grpc.Net.Client; //https://www.nuget.org/packages/Grpc.Net.Client
 using GrpcService.Protos;
 using Microsoft.Extensions.Logging;
@@ -15,7 +16,7 @@ public class GrpcClientService
         _clientId = Environment.MachineName + "_Client_" + Guid.NewGuid().ToString("N")[..8];
     }
 
-    public async Task RunBidirectionalCommunicationAsync(string serverAddress)
+    public async Task RunBidirectionalCommunicationAsync(string serverAddress, string wave)
     {
         // Create HTTP handler to bypass SSL certificate validation (development only)
         var httpHandler = new HttpClientHandler();
@@ -38,8 +39,8 @@ public class GrpcClientService
             // Health check first
             await PerformHealthCheck(client);
             
-            // Run bidirectional streaming communication
-            await StartBidirectionalChat(client);
+            // Start data generation stream
+            await StartDataGeneration(client, wave);
         }
         catch (Exception ex)
         {
@@ -56,13 +57,13 @@ public class GrpcClientService
         _logger.LogInformation($"Server Health: {healthResponse.Status}, Server ID: {healthResponse.ServerId}");
     }
 
-    private async Task StartBidirectionalChat(CommunicationService.CommunicationServiceClient client)
+    private async Task StartDataGeneration(CommunicationService.CommunicationServiceClient client, string wave)
     {
-        _logger.LogInformation("Starting bidirectional streaming chat...");
+        _logger.LogInformation($"Starting high-precision decimal data generation (1ms interval), wave={wave}...");
 
         using var call = client.Chat();
 
-        // Start reading responses in background
+        // Background task to read any responses (optional; server may echo/broadcast)
         var readTask = Task.Run(async () =>
         {
             try
@@ -70,48 +71,72 @@ public class GrpcClientService
                 while (await call.ResponseStream.MoveNext(CancellationToken.None))
                 {
                     var message = call.ResponseStream.Current;
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {message.UserId}: {message.Message}");
+                    _logger.LogDebug($"Received echo from server: fraction={message.PreciseFraction}");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"Chat reading ended: {ex.Message}");
+                _logger.LogWarning($"Response reading ended: {ex.Message}");
             }
         });
 
-        // Interactive message sending
-        Console.WriteLine($"\n=== Chat Started (Client ID: {_clientId}) ===");
-        Console.WriteLine("Type your messages (press 'quit' to exit):");
-        Console.WriteLine("==========================================");
+        // Generate a deterministic decimal in [0,1] with high precision using integer math only.
+        // We use a 18-digit fixed-point scale for precision without floating conversions.
+        const long scaleInt = 1_000_000_000_000_000_000; // 10^18
+        var sw = Stopwatch.StartNew();
 
-        string? input;
-        while ((input = Console.ReadLine()) != null && input.ToLower() != "quit")
+        // Generate selected waveform with 1 second period
+        while (true)
         {
-            if (!string.IsNullOrWhiteSpace(input))
-            {
-                var chatMessage = new ChatMessage
-                {
-                    UserId = _clientId,
-                    Message = input,
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-                };
+            // Coarse 1ms pacing
+            await Task.Delay(1);
 
-                try
-                {
-                    await call.RequestStream.WriteAsync(chatMessage);
-                    _logger.LogInformation($"Sent: {input}");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"Failed to send message: {ex.Message}");
+            // Phase in [0,1)
+            double phase = (sw.Elapsed.TotalMilliseconds % 1000.0) / 1000.0;
+            decimal valueDec;
+            switch (wave.ToLowerInvariant())
+            {
+                case "square":
+                    valueDec = phase < 0.5 ? 0m : 1m;
                     break;
-                }
+                case "saw":
+                case "sawtooth":
+                    // Use decimal for sawtooth for exactness
+                    valueDec = (decimal)phase; // cast is safe to ~15-16 digits; we reformat to string later
+                    break;
+                case "sine":
+                default:
+                    // Compute sine in double, then convert to decimal and clamp
+                    double s = 0.5 * (1.0 + Math.Sin(2 * Math.PI * phase));
+                    // Round to 18 decimal places to reduce binary->decimal artifacts
+                    valueDec = Math.Round((decimal)s, 18, MidpointRounding.AwayFromZero);
+                    break;
+            }
+            if (valueDec < 0m) valueDec = 0m;
+            if (valueDec > 1m) valueDec = 1m;
+
+            var dataMessage = new ChatMessage
+            {
+                UserId = _clientId,
+                Message = string.Empty, // no human chat content
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            };
+            dataMessage.PreciseFractionDecimal = valueDec;
+
+            try
+            {
+                await call.RequestStream.WriteAsync(dataMessage);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to send data: {ex.Message}");
+                break;
             }
         }
 
         await call.RequestStream.CompleteAsync();
         await readTask;
 
-        _logger.LogInformation("Bidirectional streaming chat completed");
+        _logger.LogInformation("Data generation stream completed");
     }
 }

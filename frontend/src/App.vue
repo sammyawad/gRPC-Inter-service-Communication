@@ -1,194 +1,70 @@
 <!-- filepath: c:\Users\sammy\Documents\gRPC-Inter-service-Communication\frontend\src\App.vue -->
 <template>
   <div id="app">
-    <div class="chat-demo">
-      <h1>gRPC Chat Demo</h1>
-      
-      <!-- Connection Setup -->
-      <div v-if="!chatState.connected" class="connection-setup">
-        <h2>Join Chat</h2>
-        
-        <div class="user-setup">
-          <div class="avatar-picker">
-            <span v-for="emoji in avatars" 
-                  :key="emoji"
-                  @click="chatState.currentUser.avatar = emoji"
-                  :class="{ active: chatState.currentUser.avatar === emoji }"
-                  class="avatar-option">
-              {{ emoji }}
-            </span>
-          </div>
-          
-          <input v-model="chatState.currentUser.username" 
-                 placeholder="Enter your username..."
-                 @keyup.enter="joinChat" />
-          
-          <button @click="joinChat" 
-                  :disabled="!chatState.currentUser.username || chatState.connecting">
-            {{ chatState.connecting ? 'Connecting...' : 'Join Chat' }}
-          </button>
-        </div>
+    <div class="chart-page">
+      <h1>Data</h1>
+      <div class="status">
+        <span :class="{ online: dataState.connected }">
+          {{ dataState.connected ? 'Connected' : 'Disconnected' }}
+        </span>
+        <span class="sep">•</span>
+        <span>
+          {{ dataState.totalPoints > 0 ? 'Receiving data' : 'No data yet' }}
+        </span>
       </div>
-      
-      <!-- Active Chat -->
-      <div v-else class="active-chat">
-        <div class="chat-header">
-          <h2>Connected as {{ chatState.currentUser.avatar }} {{ chatState.currentUser.username }}</h2>
-          <button @click="disconnect">Disconnect</button>
-        </div>
-        
-        <!-- Online Users -->
-        <div class="online-users">
-          <h3>Online ({{ chatState.onlineUsers.length }})</h3>
-          <div v-for="user in chatState.onlineUsers" :key="user.id" class="user">
-            {{ user.avatar }} {{ user.username }}
-          </div>
-        </div>
-        
-        <!-- Messages -->
-        <div class="messages" ref="messagesContainer">
-          <div v-for="message in chatState.messages" :key="message.id || message.timestamp" 
-               :class="['message', message.type]">
-            <span v-if="message.type === 'message'" class="message-content">
-              <strong>{{ message.avatar }} {{ message.username }}:</strong> {{ message.content }}
-            </span>
-            <span v-else class="system-message">
-              {{ message.message }}
-            </span>
-          </div>
-        </div>
-        
-        <!-- Input -->
-        <div class="input-area">
-          <input v-model="newMessage" 
-                 @keyup.enter="sendMessage"
-                 placeholder="Type a message..." />
-          <button @click="sendMessage">Send</button>
-        </div>
-        
-        <!-- Stats -->
-        <div class="stats">
-          <span>Sent: {{ chatState.stats.messagesSent }}</span>
-          <span>Received: {{ chatState.stats.messagesReceived }}</span>
-        </div>
-      </div>
+      <!-- Single live chart, starts blank until data arrives -->
+      <LiveChart />
     </div>
   </div>
 </template>
-
 <script>
-import { inject, ref, nextTick } from 'vue'
-import { ChatService } from './services/ChatService.js'
+import { inject, onMounted, onBeforeUnmount } from 'vue'
+import { DataService } from './services/DataService.js'
+import LiveChart from './components/LiveChart.vue'
 
 export default {
   name: 'App',
+  components: { LiveChart },
   setup() {
-    const chatState = inject('chatState')
-    const chatService = new ChatService(chatState)
-    const newMessage = ref('')
-    const messagesContainer = ref(null)
-    
-    const avatars = ['🦊', '🐱', '🐻', '🐸', '🦁', '🐯', '🐨', '🐼']
-    
-    const joinChat = async () => {
+    const dataState = inject('dataState')
+    const dataService = new DataService(dataState)
+
+    onMounted(async () => {
       try {
-        await chatService.connect(
-          chatState.currentUser.username,
-          chatState.currentUser.avatar
-        )
-      } catch (error) {
-        alert('Failed to connect: ' + error.message)
+        await dataService.connect()
+      } catch (err) {
+        console.error('Failed to connect to data stream:', err)
       }
-    }
-    
-    const sendMessage = async () => {
-      if (newMessage.value.trim()) {
-        await chatService.sendMessage(newMessage.value)
-        newMessage.value = ''
-        scrollToBottom()
-      }
-    }
-    
-    const disconnect = async () => {
-      await chatService.disconnect()
-    }
-    
-    const scrollToBottom = async () => {
-      await nextTick()
-      if (messagesContainer.value) {
-        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-      }
-    }
-    
-    return {
-      chatState,
-      newMessage,
-      messagesContainer,
-      avatars,
-      joinChat,
-      sendMessage,
-      disconnect
-    }
+    })
+
+    onBeforeUnmount(async () => {
+      await dataService.disconnect()
+    })
+
+    return { dataState }
   }
 }
 </script>
 
 <style>
-.chat-demo {
-  max-width: 800px;
+.chart-page {
+  max-width: 900px;
   margin: 0 auto;
   padding: 20px;
 }
-
-.avatar-picker {
+.status {
   display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  color: #555;
+  margin: 6px 0 12px;
 }
-
-.avatar-option {
-  font-size: 2em;
-  cursor: pointer;
-  padding: 5px;
-  border-radius: 5px;
+.status .online {
+  color: #0a7d27;
+  font-weight: 600;
 }
-
-.avatar-option.active {
-  background-color: #007bff;
-}
-
-.messages {
-  height: 400px;
-  overflow-y: auto;
-  border: 1px solid #ccc;
-  padding: 10px;
-  margin: 10px 0;
-}
-
-.message {
-  margin-bottom: 10px;
-}
-
-.system-message {
-  font-style: italic;
-  color: #666;
-}
-
-.input-area {
-  display: flex;
-  gap: 10px;
-}
-
-.input-area input {
-  flex: 1;
-  padding: 8px;
-}
-
-.stats {
-  margin-top: 10px;
-  display: flex;
-  gap: 20px;
-  font-size: 0.9em;
-  color: #666;
+.status .sep {
+  opacity: 0.6;
 }
 </style>
