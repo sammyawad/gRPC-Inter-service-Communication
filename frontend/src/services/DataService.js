@@ -63,27 +63,6 @@ export class DataService {
       console.warn('JoinChat skipped/failed:', e?.message || e)
     }
 
-    // Seed snapshot if available
-    try {
-      const snapshot = await this.connection.invoke("GetCurrentData")
-      console.log('[DataService] snapshot size', Array.isArray(snapshot) ? snapshot.length : 'n/a')
-      if (Array.isArray(snapshot)) {
-        snapshot.forEach((item) => {
-          const n = normalizeKeys(item)
-          if (Array.isArray(n.points)) {
-            n.points.forEach((pt) => {
-              const v = normalizeKeys(pt).value
-              const ts = parseTimestampMs(normalizeKeys(pt).timestamp)
-              if (n.userId !== undefined && v !== undefined) this.appendDataPoint(n.userId, v, ts)
-            })
-          } else if (n.userId !== undefined && n.value !== undefined) {
-            this.appendDataPoint(n.userId, n.value, Date.now())
-          }
-        })
-      }
-    } catch (e) {
-      console.warn('GetCurrentData failed:', e?.message || e)
-    }
   }
 
   setupEventHandlers() {
@@ -151,9 +130,30 @@ export class DataService {
     const extra = series.points.length - maxPoints
     if (extra > 0) series.points.splice(0, extra)
 
+    // Prune out-of-range points by time window to cap memory
+    this.pruneOldPoints()
+
     // Update UI status
     this.dataState.totalPoints = (this.dataState.totalPoints || 0) + 1
     this.dataState.lastEventTs = Date.now()
+  }
+
+  // Remove points older than current window across all series
+  pruneOldPoints(nowTs) {
+    const now = Number.isFinite(nowTs) ? nowTs : Date.now()
+    const windowMs = Number.isFinite(this.dataState.windowMs) ? this.dataState.windowMs : 60000
+    const minT = now - windowMs
+    for (const s of Object.values(this.dataState.series)) {
+      if (!Array.isArray(s.points) || s.points.length === 0) continue
+      // Find first index >= minT to avoid allocating a new array when possible
+      let idx = 0
+      while (idx < s.points.length && (!Number.isFinite(s.points[idx]?.x) || s.points[idx].x < minT)) idx++
+      if (idx > 0) s.points.splice(0, idx)
+      // Also enforce maxPoints per series after time prune
+      const maxPoints = Number.isFinite(this.dataState.maxPoints) ? this.dataState.maxPoints : 1000
+      const extra = s.points.length - maxPoints
+      if (extra > 0) s.points.splice(0, extra)
+    }
   }
 
   pickColor(idx) {

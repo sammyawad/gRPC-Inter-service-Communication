@@ -8,7 +8,7 @@ const dataState = reactive({
   // Keep roughly up to 60s at 10Hz (or faster if desired)
   maxPoints: 6000,
   // Time window to render in ms
-  windowMs: 60000,
+  windowMs: 15000,
   // Connection/data status for small UI indicator
   connected: false,
   totalPoints: 0,

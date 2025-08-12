@@ -1,126 +1,116 @@
 <template>
   <div class="chart-container">
-    <svg :viewBox="`0 0 ${width} ${height}`" preserveAspectRatio="none" class="chart-svg">
-      <!-- Axes -->
-      <line :x1="paddingLeft" :y1="height - paddingBottom" :x2="width - paddingRight" :y2="height - paddingBottom" stroke="#999" stroke-width="1" />
-      <line :x1="paddingLeft" :y1="paddingTop" :x2="paddingLeft" :y2="height - paddingBottom" stroke="#999" stroke-width="1" />
-
-      <!-- Y ticks (0..1) -->
-      <g>
-        <template v-for="yv in yTicks" :key="yv">
-          <line :x1="paddingLeft" :x2="width - paddingRight" :y1="yScale(yv)" :y2="yScale(yv)" stroke="#eee" />
-          <text :x="paddingLeft - 8" :y="yScale(yv) + 4" text-anchor="end" class="tick">{{ yv.toFixed(2) }}</text>
-        </template>
-      </g>
-
-      <!-- X ticks (nicely spaced) -->
-      <g>
-        <template v-for="t in xTicks" :key="t">
-          <line :x1="xScale(t)" :x2="xScale(t)" :y1="paddingTop" :y2="height - paddingBottom" stroke="#f3f3f3" />
-          <g :transform="`translate(${xScale(t)}, ${height - paddingBottom + 2}) rotate(315)`">
-            <text text-anchor="end" class="tick">{{ formatTime(t) }}</text>
-          </g>
-        </template>
-      </g>
-
-      <!-- Series polylines -->
-      <g v-for="s in seriesList" :key="s.id">
-        <polyline :points="polylinePoints(s.points)" :stroke="s.color" fill="none" stroke-width="2" />
-      </g>
-    </svg>
+    <canvas ref="canvasEl" class="chart-canvas"></canvas>
   </div>
 </template>
 
 <script>
-import { inject, onMounted, onBeforeUnmount, ref, computed } from 'vue'
+import { inject, onMounted, onBeforeUnmount, ref, computed, watchEffect } from 'vue'
+import {
+  Chart,
+  LineController,
+  LineElement,
+  PointElement,
+  TimeScale,
+  LinearScale,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js'
+import 'chartjs-adapter-date-fns'
+
+Chart.register(LineController, LineElement, PointElement, TimeScale, LinearScale, Title, Tooltip, Legend)
 
 export default {
   name: 'LiveChart',
   setup() {
     const dataState = inject('dataState')
 
-    const width = 900
-    const height = 420
-    const paddingLeft = 56
-    const paddingRight = 10
-    const paddingTop = 10
-    const paddingBottom = 38
-
-    const nowRef = ref(Date.now())
-    let rafId = null
+    const canvasEl = ref(null)
+    let chart = null
 
     const windowMs = computed(() => dataState.windowMs || 60000)
 
-    const xMin = computed(() => nowRef.value - windowMs.value)
-    const xMax = computed(() => nowRef.value)
-
-    const xScale = (t) => {
-      const x0 = paddingLeft
-      const x1 = width - paddingRight
-      if (!Number.isFinite(t)) return x0
-      const denom = (xMax.value - xMin.value) || 1
-      const frac = (t - xMin.value) / denom
-      return x0 + Math.max(0, Math.min(1, frac)) * (x1 - x0)
-    }
-    const yScale = (v) => {
-      const y0 = height - paddingBottom
-      const y1 = paddingTop
-      if (!Number.isFinite(v)) return y0
-      const frac = (v - 0) / 1
-      return y0 - Math.max(0, Math.min(1, frac)) * (y0 - y1)
+    const buildDatasets = () => {
+      const now = Date.now()
+      const minT = now - windowMs.value
+      return Object.entries(dataState.series).map(([id, s]) => ({
+        label: String(id),
+        borderColor: s.color,
+        backgroundColor: s.color,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0,
+        fill: false,
+        data: (s.points || [])
+          .filter(p => Number.isFinite(p?.x) && Number.isFinite(p?.y) && p.x >= minT)
+          .map(p => ({ x: p.x, y: p.y }))
+      }))
     }
 
-    // Nice Y ticks: 0, 0.25, 0.5, 0.75, 1
-    const yTicks = [0, 0.25, 0.5, 0.75, 1]
+    const ensureChart = () => {
+      if (chart || !canvasEl.value) return
+      chart = new Chart(canvasEl.value.getContext('2d'), {
+        type: 'line',
+        data: { datasets: [] },
+        options: {
+          animation: false,
+          responsive: true,
+          maintainAspectRatio: false,
+          parsing: false,
+          plugins: {
+            legend: { display: true },
+            title: { display: false }
+          },
+          scales: {
+            x: {
+              type: 'time',
+              adapters: {},
+              time: { unit: 'second' },
+              ticks: { display: false }
+            },
+            y: {
+              type: 'linear',
+              suggestedMin: 0,
+              suggestedMax: 1
+            }
+          }
+        }
+      })
+    }
 
-    // Compute ~8-10 nicely spaced X ticks using 1/2/5 multiples of seconds
-    const xTicks = computed(() => {
-      const desired = 8
-      const ms = windowMs.value
-      const candidatesSec = [1, 2, 5, 10, 15, 20, 30, 60]
-      let stepSec = candidatesSec[0]
-      for (const s of candidatesSec) {
-        if (ms / (s * 1000) <= desired) { stepSec = s; break }
-        stepSec = s
+    let rafId = null
+    const loop = () => {
+      // Updating datasets every frame keeps the chart in sync with live data
+      if (!chart) ensureChart()
+      if (chart) {
+        const now = Date.now()
+        // Clamp x-axis to a sliding window [now - windowMs, now]
+        const minT = now - windowMs.value
+        chart.options.scales.x.min = minT
+        chart.options.scales.x.max = now
+
+        // Rebuild datasets filtered to current window
+        chart.data.datasets = buildDatasets()
+        chart.update('none')
       }
-      const stepMs = stepSec * 1000
-      const ticks = []
-      const start = Math.ceil(xMin.value / stepMs) * stepMs
-      for (let t = start; t <= xMax.value; t += stepMs) ticks.push(t)
-      return ticks
-    })
-
-    const formatTime = (t) => new Date(t).toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit' })
-
-    const polylinePoints = (pts) => {
-      const minT = xMin.value
-      const coords = pts
-        .filter(p => Number.isFinite(p?.x) && Number.isFinite(p?.y) && p.x >= minT)
-        .map(p => ({ x: xScale(p.x), y: yScale(p.y) }))
-        .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y))
-      if (coords.length < 2) return ''
-      return coords.map(p => `${p.x},${p.y}`).join(' ')
-    }
-
-    // Flatten reactive map into an array for safe template iteration
-    const seriesList = computed(() =>
-      Object.entries(dataState.series).map(([id, s]) => ({ id, color: s.color, points: s.points }))
-    )
-
-    const animate = () => {
-      nowRef.value = Date.now()
-      rafId = requestAnimationFrame(animate)
+      rafId = requestAnimationFrame(loop)
     }
 
     onMounted(() => {
-      rafId = requestAnimationFrame(animate)
+      ensureChart()
+      rafId = requestAnimationFrame(loop)
     })
 
     onBeforeUnmount(() => {
       if (rafId) cancelAnimationFrame(rafId)
+      if (chart) {
+        chart.destroy()
+        chart = null
+      }
     })
 
-    return { dataState, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom, xScale, yScale, yTicks, xTicks, formatTime, polylinePoints, seriesList }
+    return { canvasEl }
   }
 }
 </script>
@@ -130,7 +120,5 @@ export default {
   width: 100%;
   height: 420px;
 }
-.chart-svg { width: 100%; height: 100%; }
-.tick { font-size: 10px; fill: #444; }
+.chart-canvas { width: 100%; height: 100%; display: block; }
 </style>
-

@@ -82,7 +82,6 @@ public class GrpcClientService
 
         // Generate a deterministic decimal in [0,1] with high precision using integer math only.
         // We use a 18-digit fixed-point scale for precision without floating conversions.
-        const long scaleInt = 1_000_000_000_000_000_000; // 10^18
         var sw = Stopwatch.StartNew();
 
         // Generate selected waveform with 1 second period

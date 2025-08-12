@@ -13,7 +13,10 @@
   },
   "dependencies": {
     "vue": "^3.5.18",
-    "@microsoft/signalr": "^8.0.7"
+    "@microsoft/signalr": "^8.0.7",
+    "chart.js": "^4.4.7",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "date-fns": "^4.1.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.1",
