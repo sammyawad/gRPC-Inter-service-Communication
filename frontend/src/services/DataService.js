@@ -92,6 +92,8 @@ export class DataService {
         }
         this.dataState.clients = map
         this.dataState.clientOrder = order
+        // Prune any series that no longer have a connected client
+        this.pruneDisconnectedSeries()
       } catch (e) {
         console.warn('[DataService] failed handling OnlineUsersUpdate', e)
       }
@@ -117,8 +119,8 @@ export class DataService {
         delete this.dataState.clients[id]
         const idx = this.dataState.clientOrder.indexOf(id)
         if (idx >= 0) this.dataState.clientOrder.splice(idx, 1)
-        // Optionally hide series for this client by removing it
-        // delete this.dataState.series[id]
+        // Immediately remove the associated series so the chart/legend update
+        if (this.dataState.series[id]) delete this.dataState.series[id]
       } catch (e) {
         console.warn('[DataService] failed handling UserLeft', e)
       }
@@ -207,6 +209,16 @@ export class DataService {
       const maxPoints = Number.isFinite(this.dataState.maxPoints) ? this.dataState.maxPoints : 1000
       const extra = s.points.length - maxPoints
       if (extra > 0) s.points.splice(0, extra)
+    }
+  }
+
+  // Remove any series whose owner is no longer connected
+  pruneDisconnectedSeries() {
+    const connectedIds = new Set(Object.keys(this.dataState.clients || {}))
+    for (const id of Object.keys(this.dataState.series || {})) {
+      if (!connectedIds.has(id)) {
+        delete this.dataState.series[id]
+      }
     }
   }
 

@@ -3,6 +3,10 @@ import App from './App.vue'
 
 // Data state for live decimal series per client
 const dataState = reactive({
+  // Presence map: connectionId -> { username, avatar }
+  clients: {},
+  // Stable client ordering for legend
+  clientOrder: [],
   // Map of seriesId -> { color: string, points: Array<{ x: number, y: number }> }
   series: {},
   // Keep roughly up to 60s at 10Hz (or faster if desired)

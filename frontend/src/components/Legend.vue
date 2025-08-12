@@ -14,10 +14,19 @@ export default {
   name: 'Legend',
   setup() {
     const dataState = inject('dataState')
+
+    // Presence-driven legend: reflect currently connected clients
+    const clients = computed(() => dataState.clients || {})
     const series = computed(() => dataState.series || {})
 
-    // Only show series that are actually producing data (no viewers)
-    const ids = computed(() => Object.keys(series.value))
+    // Use stable order from presence updates; if none, fallback to presence keys; if no presence, fallback to series keys
+    const ids = computed(() => {
+      const order = Array.isArray(dataState.clientOrder) ? dataState.clientOrder : []
+      if (order.length > 0) return order
+      const presenceKeys = Object.keys(clients.value || {})
+      if (presenceKeys.length > 0) return presenceKeys
+      return Object.keys(series.value || {})
+    })
 
     const hasAny = computed(() => ids.value.length > 0)
 
@@ -33,12 +42,17 @@ export default {
       }
       return h % palette.length
     }
+
+    // Prefer series color if available; otherwise stable hash-based palette per id
     const swatchColor = (id) => {
       const col = series.value?.[id]?.color
       return col || palette[hashToIdx(String(id))]
     }
 
+    // Prefer username from presence; fallback to short id and optional graph type
     const displayName = (id) => {
+      const presence = clients.value?.[id]
+      if (presence?.username) return presence.username
       const s = series.value?.[id] || {}
       const shortId = typeof id === 'string' && id.length > 0 ? id.slice(-5) : String(id)
       const graphType = (s.graphType || s.mode || 'client').toString()
