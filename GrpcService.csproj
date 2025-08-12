@@ -7,6 +7,11 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
 
+  <!-- Avoid locking GrpcService.exe during Debug builds by not generating the apphost EXE -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <UseAppHost>false</UseAppHost>
+  </PropertyGroup>
+
   <ItemGroup>
     <Protobuf Include="Protos\communication.proto" GrpcServices="Both" />
   </ItemGroup>
@@ -20,4 +25,4 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.CommandLine" Version="8.0.0" />
   </ItemGroup>
 
-</Project>
+</Project>

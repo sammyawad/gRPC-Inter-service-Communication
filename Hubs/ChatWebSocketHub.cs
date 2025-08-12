@@ -25,17 +25,18 @@ namespace GrpcService.Hubs
                 ConnectionId = Context.ConnectionId
             };
 
-            // Notify all clients that user joined
+            // Notify all clients that user joined (include ConnectionId)
             await Clients.All.SendAsync("UserJoined", new
             {
                 Username = username,
                 Avatar = avatar,
+                ConnectionId = Context.ConnectionId,
                 Message = $"{username} joined the chat",
                 Timestamp = DateTime.UtcNow,
                 Type = "system"
             });
 
-            // Send current online users to the new client
+            // Build current online users
             var onlineUsers = _connectedUsers.Values.Select(u => new
             {
                 Id = u.ConnectionId,
@@ -43,7 +44,10 @@ namespace GrpcService.Hubs
                 Avatar = u.Avatar
             }).ToList();
 
+            // Send current users to the new client
             await Clients.Caller.SendAsync("OnlineUsersUpdate", onlineUsers);
+            // Also broadcast updated presence to everyone
+            await Clients.All.SendAsync("OnlineUsersUpdate", onlineUsers);
 
             _logger.LogInformation($"User {username} joined via WebSocket");
         }
@@ -99,13 +103,24 @@ namespace GrpcService.Hubs
         {
             if (_connectedUsers.TryRemove(Context.ConnectionId, out var user))
             {
+                // Notify all clients (include ConnectionId)
                 await Clients.All.SendAsync("UserLeft", new
                 {
                     Username = user.Username,
+                    ConnectionId = Context.ConnectionId,
                     Message = $"{user.Username} left the chat",
                     Type = "system",
                     Timestamp = DateTime.UtcNow
                 });
+
+                // Broadcast updated presence to everyone
+                var onlineUsers = _connectedUsers.Values.Select(u => new
+                {
+                    Id = u.ConnectionId,
+                    Username = u.Username,
+                    Avatar = u.Avatar
+                }).ToList();
+                await Clients.All.SendAsync("OnlineUsersUpdate", onlineUsers);
 
                 _logger.LogInformation($"User {user.Username} disconnected");
             }

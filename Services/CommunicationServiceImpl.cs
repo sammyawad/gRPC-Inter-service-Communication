@@ -57,7 +57,8 @@ public class CommunicationServiceImpl : CommunicationService.CommunicationServic
                     await _hubContext.Clients.All.SendAsync("DataUpdated", new {
                         UserId = message.UserId,
                         Value = value.Value,
-                        Timestamp = DateTime.UtcNow
+                        Timestamp = DateTime.UtcNow,
+                        Mode = message.Message // use ChatMessage.Message to carry graph type
                     });
                 }
 

@@ -22,7 +22,8 @@ const normalizeKeys = (obj) => ({
   userId: obj?.UserId ?? obj?.userId ?? obj?.clientId ?? obj?.id,
   value: obj?.Value ?? obj?.value ?? obj?.val ?? obj?.data,
   timestamp: obj?.Timestamp ?? obj?.timestamp ?? obj?.ts,
-  points: obj?.Points ?? obj?.points
+  points: obj?.Points ?? obj?.points,
+  mode: obj?.Mode ?? obj?.mode ?? obj?.wave ?? obj?.graphType
 })
 
 export class DataService {
@@ -32,6 +33,8 @@ export class DataService {
 
     // Ensure dataState shape exists
     if (!this.dataState.series) this.dataState.series = {}
+    if (!this.dataState.clients) this.dataState.clients = {} // presence map: id -> { username, avatar }
+    if (!Array.isArray(this.dataState.clientOrder)) this.dataState.clientOrder = [] // stable ordering for legend
     if (!Number.isFinite(this.dataState.maxPoints)) this.dataState.maxPoints = 1000
     if (!Number.isFinite(this.dataState.totalPoints)) this.dataState.totalPoints = 0
     if (!Number.isFinite(this.dataState.windowMs)) this.dataState.windowMs = 60000
@@ -54,15 +57,7 @@ export class DataService {
     console.log('[DataService] connection started')
     this.dataState.connected = true
 
-    // Optional: register identity on hub if supported
-    try {
-      await this.connection.invoke("JoinChat", "viewer", "📊")
-      console.log('[DataService] JoinChat invoked as viewer')
-    } catch (e) {
-      // Some hubs won’t have this method; not fatal
-      console.warn('JoinChat skipped/failed:', e?.message || e)
-    }
-
+    // Do not register as a "viewer". We only consume broadcasts.
   }
 
   setupEventHandlers() {
@@ -75,10 +70,57 @@ export class DataService {
           return
         }
         const ts = parseTimestampMs(n.timestamp)
-        this.appendDataPoint(n.userId, n.value, ts)
-        console.debug('[DataService] DataUpdated', { user: n.userId, value: n.value, ts })
+        // Do not add placeholder viewers; legend is driven by series only
+        this.appendDataPoint(n.userId, n.value, ts, n.mode)
+        console.debug('[DataService] DataUpdated', { user: n.userId, value: n.value, ts, mode: n.mode })
       } catch (err) {
         console.error('[DataService] failed handling DataUpdated', m, err)
+      }
+    })
+
+    // Presence updates
+    this.connection.on("OnlineUsersUpdate", (list) => {
+      try {
+        if (!Array.isArray(list)) return
+        const map = {}
+        const order = []
+        for (const u of list) {
+          const id = u?.Id || u?.id || u?.ConnectionId || u?.connectionId
+          if (!id) continue
+          map[id] = { username: u?.Username || u?.username || 'client', avatar: u?.Avatar || u?.avatar || '' }
+          order.push(id)
+        }
+        this.dataState.clients = map
+        this.dataState.clientOrder = order
+      } catch (e) {
+        console.warn('[DataService] failed handling OnlineUsersUpdate', e)
+      }
+    })
+
+    this.connection.on("UserJoined", (u) => {
+      try {
+        const id = u?.ConnectionId || u?.connectionId
+        if (!id) return
+        const username = u?.Username || u?.username || 'client'
+        const avatar = u?.Avatar || u?.avatar || ''
+        this.dataState.clients[id] = { username, avatar }
+        if (!this.dataState.clientOrder.includes(id)) this.dataState.clientOrder.push(id)
+      } catch (e) {
+        console.warn('[DataService] failed handling UserJoined', e)
+      }
+    })
+
+    this.connection.on("UserLeft", (u) => {
+      try {
+        const id = u?.ConnectionId || u?.connectionId || u?.Id || u?.id
+        if (!id) return
+        delete this.dataState.clients[id]
+        const idx = this.dataState.clientOrder.indexOf(id)
+        if (idx >= 0) this.dataState.clientOrder.splice(idx, 1)
+        // Optionally hide series for this client by removing it
+        // delete this.dataState.series[id]
+      } catch (e) {
+        console.warn('[DataService] failed handling UserLeft', e)
       }
     })
 
@@ -99,8 +141,17 @@ export class DataService {
     })
   }
 
+  ensurePresence(id) {
+    if (!id) return
+    if (!this.dataState.clients[id]) {
+      // Create a placeholder presence entry when we see data for a new id
+      this.dataState.clients[id] = { username: 'client', avatar: '' }
+      if (!this.dataState.clientOrder.includes(id)) this.dataState.clientOrder.push(id)
+    }
+  }
+
   // Append a data point to dataState with trimming and color assignment
-  appendDataPoint(seriesId, value, timestampMs) {
+  appendDataPoint(seriesId, value, timestampMs, mode) {
     if (seriesId == null) {
       console.warn('[DataService] appendDataPoint missing seriesId')
       return
@@ -110,8 +161,11 @@ export class DataService {
     if (!this.dataState.series[seriesId]) {
       this.dataState.series[seriesId] = {
         color: this.pickColor(Object.keys(this.dataState.series).length),
-        points: []
+        points: [],
+        graphType: mode || undefined
       }
+    } else if (mode && !this.dataState.series[seriesId].graphType) {
+      this.dataState.series[seriesId].graphType = mode
     }
 
     // Parse and validate inputs

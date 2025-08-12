@@ -12,6 +12,8 @@
           {{ dataState.totalPoints > 0 ? 'Receiving data' : 'No data yet' }}
         </span>
       </div>
+      <!-- Presence-driven legend -->
+      <Legend />
       <!-- Single live chart, starts blank until data arrives -->
       <LiveChart />
     </div>
@@ -21,10 +23,11 @@
 import { inject, onMounted, onBeforeUnmount } from 'vue'
 import { DataService } from './services/DataService.js'
 import LiveChart from './components/LiveChart.vue'
+import Legend from './components/Legend.vue'
 
 export default {
   name: 'App',
-  components: { LiveChart },
+  components: { LiveChart, Legend },
   setup() {
     const dataState = inject('dataState')
     const dataService = new DataService(dataState)

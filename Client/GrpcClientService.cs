@@ -117,7 +117,7 @@ public class GrpcClientService
             var dataMessage = new ChatMessage
             {
                 UserId = _clientId,
-                Message = string.Empty, // no human chat content
+                Message = wave, // carry graph type so UI can label legend (e.g., sine/square/saw)
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
             dataMessage.PreciseFractionDecimal = valueDec;

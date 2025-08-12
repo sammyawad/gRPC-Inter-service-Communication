@@ -58,8 +58,8 @@ export default {
           responsive: true,
           maintainAspectRatio: false,
           parsing: false,
-          plugins: {
-            legend: { display: true },
+            plugins: {
+            legend: { display: false },
             title: { display: false }
           },
           scales: {

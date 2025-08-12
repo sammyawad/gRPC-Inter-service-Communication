@@ -2,7 +2,6 @@
   <div class="legend" v-if="hasAny">
     <div class="legend-item" v-for="id in ids" :key="id">
       <span class="color-swatch" :style="{ backgroundColor: swatchColor(id) }"></span>
-      <span class="legend-avatar" v-if="users[id] && users[id].avatar">{{ users[id].avatar }}</span>
       <span class="legend-name">{{ displayName(id) }}</span>
     </div>
   </div>
@@ -15,18 +14,10 @@ export default {
   name: 'Legend',
   setup() {
     const dataState = inject('dataState')
-    const users = computed(() => dataState.users || {})
     const series = computed(() => dataState.series || {})
 
-    // Legend should list clients: union of (non-viewer users) and active data series keys.
-    const ids = computed(() => {
-      const u = users.value || {}
-      const nonViewerUsers = Object.entries(u)
-        .filter(([_, info]) => (info?.username || '').toLowerCase() !== 'viewer')
-        .map(([id]) => id)
-      const seriesIds = Object.keys(series.value || {})
-      return Array.from(new Set([...nonViewerUsers, ...seriesIds]))
-    })
+    // Only show series that are actually producing data (no viewers)
+    const ids = computed(() => Object.keys(series.value))
 
     const hasAny = computed(() => ids.value.length > 0)
 
@@ -48,19 +39,36 @@ export default {
     }
 
     const displayName = (id) => {
-      // Prefer per-series mode (wave) if available; fall back to user.username, else 'client'
-      const s = series.value?.[id]
-      const u = users.value?.[id]
-      const wave = (s?.mode || '').toString().trim()
-      const userMode = (u?.username || '').toString().trim()
-      const mode = (wave || (userMode.toLowerCase() === 'viewer' ? '' : userMode) || 'client').toLowerCase()
-      const shortId = typeof id === 'string' && id.length > 0 ? id.slice(-5) : ''
-      return shortId ? `${shortId} ${mode}` : mode
+      const s = series.value?.[id] || {}
+      const shortId = typeof id === 'string' && id.length > 0 ? id.slice(-5) : String(id)
+      const graphType = (s.graphType || s.mode || 'client').toString()
+      return `${shortId} ${graphType}`
     }
 
     // Return refs so the template stays reactive
-    return { users, series, ids, hasAny, displayName, swatchColor }
+    return { series, ids, hasAny, displayName, swatchColor }
   }
 }
 </script>
+
+<style>
+.legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+.color-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+}
+</style>
 
