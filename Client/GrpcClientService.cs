@@ -54,7 +54,12 @@ public class GrpcClientService
             {
                 await call.RequestStream.WriteAsync(message, cancellationToken);
             }
-            catch (Exception ex) when (ex is OperationCanceledException or RpcException)
+            catch (RpcException rex)
+            {
+                Console.WriteLine($"[client] RpcException: {rex.Status.StatusCode} - {rex.Status.Detail}");
+                break;
+            }
+            catch (OperationCanceledException)
             {
                 break;
             }

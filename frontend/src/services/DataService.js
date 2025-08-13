@@ -80,32 +80,12 @@ export class DataService {
       }
     })
 
-    // Presence updates from SignalR hub (websocket viewers)
-    this.connection.on("OnlineUsersUpdate", (list) => {
-      try {
-        if (!Array.isArray(list)) return
-        const map = {}
-        const order = []
-        for (const u of list) {
-          const id = u?.Id || u?.id || u?.ConnectionId || u?.connectionId
-          if (!id) continue
-          map[id] = { username: u?.Username || u?.username || 'client', avatar: u?.Avatar || u?.avatar || '' }
-          order.push(id)
-        }
-        this.dataState.clients = map
-        this.dataState.clientOrder = order
-        // Do not prune series here; data senders are tracked via DataClient* events
-      } catch (e) {
-        console.warn('[DataService] failed handling OnlineUsersUpdate', e)
-      }
-    })
-
-    // Data-sending gRPC client presence events
+    // Data-sending gRPC client presence events (emitted by backend CommunicationServiceImpl)
     this.connection.on("DataClientJoined", (u) => {
       try {
         const id = u?.UserId || u?.userId
         if (!id) return
-        // Ensure presence entry for legend listing
+        // Track data-sending client presence so we can prune series when they disconnect
         if (!this.dataState.clients[id]) this.dataState.clients[id] = { username: u?.Username || id, avatar: '' }
         if (!this.dataState.clientOrder.includes(id)) this.dataState.clientOrder.push(id)
       } catch (e) {
@@ -126,32 +106,8 @@ export class DataService {
       }
     })
 
-    this.connection.on("UserJoined", (u) => {
-      try {
-        const id = u?.ConnectionId || u?.connectionId
-        if (!id) return
-        const username = u?.Username || u?.username || 'client'
-        const avatar = u?.Avatar || u?.avatar || ''
-        this.dataState.clients[id] = { username, avatar }
-        if (!this.dataState.clientOrder.includes(id)) this.dataState.clientOrder.push(id)
-      } catch (e) {
-        console.warn('[DataService] failed handling UserJoined', e)
-      }
-    })
-
-    this.connection.on("UserLeft", (u) => {
-      try {
-        const id = u?.ConnectionId || u?.connectionId || u?.Id || u?.id
-        if (!id) return
-        delete this.dataState.clients[id]
-        const idx = this.dataState.clientOrder.indexOf(id)
-        if (idx >= 0) this.dataState.clientOrder.splice(idx, 1)
-        // Immediately remove the associated series so the chart/legend update
-        if (this.dataState.series[id]) delete this.dataState.series[id]
-      } catch (e) {
-        console.warn('[DataService] failed handling UserLeft', e)
-      }
-    })
+    // Note: the backend does not emit websocket-viewer presence events (UserJoined/UserLeft/OnlineUsersUpdate).
+    // If added later in the hub, handlers can be reintroduced here without affecting current functionality.
 
     // Connection lifecycle logs
     this.connection.onreconnecting(() => {
