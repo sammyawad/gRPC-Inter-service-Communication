@@ -21,9 +21,13 @@ message ChatMessage {
   int64 timestamp = 3;
   
   // Decimal value represented as a string to avoid floating point errors.
-  // This is intended for values in the inclusive range [0, 1] with high precision.
+  // Supports arbitrary numeric ranges with high precision.
   // The string should be formatted using US culture (e.g., "0.123456789").
   string precise_fraction = 4;
+  
+  // Optional: Client's configured Y-axis range
+  string y_min = 5;  // Minimum Y value configured for this client
+  string y_max = 6;  // Maximum Y value configured for this client
 }
 
 message HealthResponse {

@@ -23,7 +23,9 @@ const normalizeKeys = (obj) => ({
   value: obj?.Value ?? obj?.value ?? obj?.val ?? obj?.data,
   timestamp: obj?.Timestamp ?? obj?.timestamp ?? obj?.ts,
   points: obj?.Points ?? obj?.points,
-  mode: obj?.Mode ?? obj?.mode ?? obj?.wave ?? obj?.graphType
+  mode: obj?.Mode ?? obj?.mode ?? obj?.wave ?? obj?.graphType,
+  yMin: obj?.YMin ?? obj?.yMin,
+  yMax: obj?.YMax ?? obj?.yMax
 })
 
 export class DataService {
@@ -71,8 +73,8 @@ export class DataService {
         }
         const ts = parseTimestampMs(n.timestamp)
         // Do not add placeholder viewers; legend is driven by series only
-        this.appendDataPoint(n.userId, n.value, ts, n.mode)
-        console.debug('[DataService] DataUpdated', { user: n.userId, value: n.value, ts, mode: n.mode })
+        this.appendDataPoint(n.userId, n.value, ts, n.mode, n.yMin, n.yMax)
+        console.debug('[DataService] DataUpdated', { user: n.userId, value: n.value, ts, mode: n.mode, yMin: n.yMin, yMax: n.yMax })
       } catch (err) {
         console.error('[DataService] failed handling DataUpdated', m, err)
       }
@@ -178,7 +180,7 @@ export class DataService {
   }
 
   // Append a data point to dataState with trimming and color assignment
-  appendDataPoint(seriesId, value, timestampMs, mode) {
+  appendDataPoint(seriesId, value, timestampMs, mode, yMin, yMax) {
     if (seriesId == null) {
       console.warn('[DataService] appendDataPoint missing seriesId')
       return
@@ -189,10 +191,21 @@ export class DataService {
       this.dataState.series[seriesId] = {
         color: this.pickColor(Object.keys(this.dataState.series).length),
         points: [],
-        graphType: mode || undefined
+        graphType: mode || undefined,
+        yMin: yMin !== undefined ? parseNumber(yMin) : undefined,
+        yMax: yMax !== undefined ? parseNumber(yMax) : undefined
       }
-    } else if (mode && !this.dataState.series[seriesId].graphType) {
-      this.dataState.series[seriesId].graphType = mode
+    } else {
+      if (mode && !this.dataState.series[seriesId].graphType) {
+        this.dataState.series[seriesId].graphType = mode
+      }
+      // Update Y range if provided
+      if (yMin !== undefined) {
+        this.dataState.series[seriesId].yMin = parseNumber(yMin)
+      }
+      if (yMax !== undefined) {
+        this.dataState.series[seriesId].yMax = parseNumber(yMax)
+      }
     }
 
     // Parse and validate inputs

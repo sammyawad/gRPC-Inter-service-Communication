@@ -17,11 +17,21 @@ public class Program
         var port = configuration["port"] ?? "5000";
         var serverAddress = configuration["server"] ?? $"https://localhost:{port}";
         var wave = configuration["wave"] ?? "sine"; // sine | square | saw
+        // Optional client output range mapping for generated waveforms
+        var yminStr = configuration["ymin"];
+        var ymaxStr = configuration["ymax"];
+        var hasYmin = decimal.TryParse(yminStr, out var ymin);
+        var hasYmax = decimal.TryParse(ymaxStr, out var ymax);
+        // Defaults if not provided
+        if (!hasYmin) ymin = 0m;
+        if (!hasYmax) ymax = 1m;
 
         Console.WriteLine("=== gRPC Bidirectional Communication Demo ===");
         Console.WriteLine($"Mode: {mode}");
         Console.WriteLine($"Port: {port}");
         Console.WriteLine($"Server Address: {serverAddress}");
+        Console.WriteLine($"Waveform: {wave}");
+        Console.WriteLine($"Y range: [{ymin}, {ymax}]");
         Console.WriteLine("==============================================");
 
         try
@@ -44,7 +54,7 @@ public class Program
                     }
                 };
 
-                await RunClientAsync(serverAddress, wave, cts.Token);
+                await RunClientAsync(serverAddress, wave, ymin, ymax, cts.Token);
             }
             else
             {
@@ -140,7 +150,7 @@ public class Program
         await app.RunAsync();
     }
 
-    private static async Task RunClientAsync(string serverAddress, string wave, CancellationToken cancellationToken)
+    private static async Task RunClientAsync(string serverAddress, string wave, decimal ymin, decimal ymax, CancellationToken cancellationToken)
     {
         var services = new ServiceCollection();
         services.AddLogging(configure => configure.AddConsole());
@@ -151,7 +161,7 @@ public class Program
 
         Console.WriteLine($"Starting gRPC client, connecting to {serverAddress}...");
         
-        await clientService.RunBidirectionalCommunicationAsync(serverAddress, wave, cancellationToken);
+        await clientService.RunBidirectionalCommunicationAsync(serverAddress, wave, ymin, ymax, cancellationToken);
         
         Console.WriteLine("Client stopped.");
     }
@@ -165,12 +175,12 @@ public class Program
         Console.WriteLine("    - Starts gRPC server + WebSocket for browser clients");
         Console.WriteLine();
         Console.WriteLine("  Client mode:");
-        Console.WriteLine("    dotnet run --mode=client [--server=https://localhost:5000]");
+        Console.WriteLine("    dotnet run --mode=client [--server=https://localhost:5000] [--wave=sine] [--ymin=0] [--ymax=1]");
         Console.WriteLine("    - Connects as gRPC client for testing");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  dotnet run --mode=server --port=5001");
-        Console.WriteLine("  dotnet run --mode=client --server=https://localhost:5001");
+        Console.WriteLine("  dotnet run --mode=client --server=https://localhost:5001 --wave=sine --ymin=-1 --ymax=5");
         Console.WriteLine();
         Console.WriteLine("Note: This demo uses bidirectional streaming for real-time communication.");
         Console.WriteLine("      Browser clients connect via WebSocket, console clients via gRPC.");

@@ -71,12 +71,54 @@ export default {
             },
             y: {
               type: 'linear',
-              suggestedMin: 0,
-              suggestedMax: 1
+              // Initialize with defaults; will be overridden dynamically
+              min: 0,
+              max: 1
             }
           }
         }
       })
+    }
+
+    // Compute y-axis bounds from current datasets and window
+    // This accounts for both actual data values and configured client ranges
+    const computeYBounds = () => {
+      const now = Date.now()
+      const minT = now - windowMs.value
+      let ymin = Number.POSITIVE_INFINITY
+      let ymax = Number.NEGATIVE_INFINITY
+      
+      // First, consider all configured client ranges
+      for (const s of Object.values(dataState.series || {})) {
+        // Include client's configured range if available
+        if (Number.isFinite(s.yMin) && s.yMin < ymin) ymin = s.yMin
+        if (Number.isFinite(s.yMax) && s.yMax > ymax) ymax = s.yMax
+        
+        // Also consider actual data points within the time window
+        const pts = Array.isArray(s.points) ? s.points : []
+        for (let i = pts.length - 1; i >= 0; i--) {
+          const p = pts[i]
+          if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue
+          if (p.x < minT) break // older points will be even earlier
+          if (p.y < ymin) ymin = p.y
+          if (p.y > ymax) ymax = p.y
+        }
+      }
+      
+      // Fallback to defaults if no valid bounds found
+      if (!Number.isFinite(ymin) || !Number.isFinite(ymax)) {
+        return { min: 0, max: 1 }
+      }
+      
+      // If range is too small (e.g., all values are the same), add padding
+      if (ymax - ymin < 0.01) {
+        const center = (ymax + ymin) / 2
+        return { min: center - 0.5, max: center + 0.5 }
+      }
+      
+      // Add a small 5% padding to avoid clipping at boundaries
+      const pad = (ymax - ymin) * 0.05
+      return { min: ymin - pad, max: ymax + pad }
     }
 
     let rafId = null
@@ -92,6 +134,12 @@ export default {
 
         // Rebuild datasets filtered to current window
         chart.data.datasets = buildDatasets()
+
+        // Dynamically adjust y-axis to include all current values
+        const yb = computeYBounds()
+        chart.options.scales.y.min = yb.min
+        chart.options.scales.y.max = yb.max
+
         chart.update('none')
       }
       rafId = requestAnimationFrame(loop)

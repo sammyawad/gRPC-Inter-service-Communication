@@ -17,7 +17,7 @@ public class GrpcClientService
         _clientId = Environment.MachineName + "_Client_" + Guid.NewGuid().ToString("N")[..8];
     }
 
-    public async Task RunBidirectionalCommunicationAsync(string serverAddress, string wave, CancellationToken cancellationToken)
+    public async Task RunBidirectionalCommunicationAsync(string serverAddress, string wave, decimal ymin, decimal ymax, CancellationToken cancellationToken)
     {
         // Create HTTP handler to bypass SSL certificate validation (development only)
         var httpHandler = new HttpClientHandler();
@@ -41,7 +41,7 @@ public class GrpcClientService
             await PerformHealthCheck(client);
             
             // Start data generation stream
-            await StartDataGeneration(client, wave, cancellationToken);
+            await StartDataGeneration(client, wave, ymin, ymax, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -62,9 +62,9 @@ public class GrpcClientService
         _logger.LogInformation($"Server Health: {healthResponse.Status}, Server ID: {healthResponse.ServerId}");
     }
 
-    private async Task StartDataGeneration(CommunicationService.CommunicationServiceClient client, string wave, CancellationToken cancellationToken)
+    private async Task StartDataGeneration(CommunicationService.CommunicationServiceClient client, string wave, decimal ymin, decimal ymax, CancellationToken cancellationToken)
     {
-        _logger.LogInformation($"Starting high-precision decimal data generation (1ms interval), wave={wave}...");
+        _logger.LogInformation($"Starting high-precision decimal data generation (1ms interval), wave={wave}, range=[{ymin},{ymax}]...");
 
         using var call = client.Chat();
 
@@ -124,16 +124,27 @@ public class GrpcClientService
                     valueDec = Math.Round((decimal)s, 18, MidpointRounding.AwayFromZero);
                     break;
             }
-            if (valueDec < 0m) valueDec = 0m;
-            if (valueDec > 1m) valueDec = 1m;
+
+            // Map from base [0,1] to desired [ymin, ymax]
+            // If bounds are inverted (ymin > ymax), swap them
+            if (ymin > ymax)
+            {
+                var tmp = ymin; ymin = ymax; ymax = tmp;
+            }
+            var range = ymax - ymin;
+            var mapped = ymin + valueDec * range;
+            // Round to 18 decimals to keep string compact
+            mapped = Math.Round(mapped, 18, MidpointRounding.AwayFromZero);
 
             var dataMessage = new ChatMessage
             {
                 UserId = _clientId,
                 Message = wave, // carry graph type so UI can label legend (e.g., sine/square/saw)
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                YMin = ymin.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                YMax = ymax.ToString("G29", System.Globalization.CultureInfo.InvariantCulture)
             };
-            dataMessage.PreciseFractionDecimal = valueDec;
+            dataMessage.PreciseFractionDecimal = mapped;
 
             try
             {

@@ -78,7 +78,9 @@ public class CommunicationServiceImpl : CommunicationService.CommunicationServic
                         UserId = message.UserId,
                         Value = value.Value,
                         Timestamp = DateTime.UtcNow,
-                        Mode = message.Message // use ChatMessage.Message to carry graph type
+                        Mode = message.Message, // use ChatMessage.Message to carry graph type
+                        YMin = message.YMin,
+                        YMax = message.YMax
                     });
                 }
 

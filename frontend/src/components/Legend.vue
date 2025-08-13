@@ -40,12 +40,19 @@ export default {
       return col || palette[hashToIdx(String(id))]
     }
 
-    // Name format: last 5 of id + mode (graph type), e.g., "566b2 saw"
+    // Name format: last 5 of id + mode (graph type) + range, e.g., "566b2 sine [-1, 5]"
     const displayName = (id) => {
       const s = series.value?.[id] || {}
       const shortId = typeof id === 'string' && id.length > 0 ? id.slice(-5) : String(id)
       const graphType = (s.graphType || s.mode || 'client').toString().toLowerCase()
-      return `${shortId} ${graphType}`
+      
+      // Add Y range if available
+      let rangeStr = ''
+      if (Number.isFinite(s.yMin) && Number.isFinite(s.yMax)) {
+        rangeStr = ` [${s.yMin.toFixed(1)}, ${s.yMax.toFixed(1)}]`
+      }
+      
+      return `${shortId} ${graphType}${rangeStr}`
     }
 
     return { series, ids, hasAny, displayName, swatchColor }

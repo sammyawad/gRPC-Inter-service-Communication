@@ -5,7 +5,7 @@ namespace GrpcService.Protos;
 
 // This partial class adds a Decimal-friendly API over the string-based
 // precise_fraction field in ChatMessage. It assumes US culture formatting
-// and is intended for values in [0, 1].
+// and supports arbitrary numeric ranges.
 public partial class ChatMessage
 {
     private static readonly CultureInfo UsCulture = CultureInfo.GetCultureInfo("en-US");
@@ -29,10 +29,7 @@ public partial class ChatMessage
                 return;
             }
 
-            if (value < 0m || value > 1m)
-            {
-                throw new ArgumentOutOfRangeException(nameof(PreciseFractionDecimal), "Value must be between 0 and 1 inclusive.");
-            }
+            // Accept any decimal range; the frontend will scale axes dynamically.
 
             // Use "G29" to preserve as many significant digits as possible without scientific notation
             PreciseFraction = value.Value.ToString("G29", UsCulture);
