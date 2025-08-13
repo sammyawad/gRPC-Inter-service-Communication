@@ -110,15 +110,8 @@ export default {
         return { min: 0, max: 1 }
       }
       
-      // If range is too small (e.g., all values are the same), add padding
-      if (ymax - ymin < 0.01) {
-        const center = (ymax + ymin) / 2
-        return { min: center - 0.5, max: center + 0.5 }
-      }
-      
-      // Add a small 5% padding to avoid clipping at boundaries
-      const pad = (ymax - ymin) * 0.05
-      return { min: ymin - pad, max: ymax + pad }
+      // Return exact bounds without padding
+      return { min: ymin, max: ymax }
     }
 
     let rafId = null
