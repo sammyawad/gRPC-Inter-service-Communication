@@ -1,6 +1,5 @@
 using GrpcService.Services;
 using GrpcService.Client;
-using GrpcService.Hubs;  
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 namespace GrpcService;
@@ -15,56 +14,33 @@ public class Program
 
         var mode = configuration["mode"] ?? "server";
         var port = configuration["port"] ?? "5000";
-        var serverAddress = configuration["server"] ?? $"https://localhost:{port}";
-        var wave = configuration["wave"] ?? "sine"; // sine | square | saw
-        // Optional client output range mapping for generated waveforms
-        var yminStr = configuration["ymin"];
-        var ymaxStr = configuration["ymax"];
-        var hasYmin = decimal.TryParse(yminStr, out var ymin);
-        var hasYmax = decimal.TryParse(ymaxStr, out var ymax);
-        // Defaults if not provided
-        if (!hasYmin) ymin = 0m;
-        if (!hasYmax) ymax = 1m;
-
-        Console.WriteLine("=== gRPC Bidirectional Communication Demo ===");
-        Console.WriteLine($"Mode: {mode}");
-        Console.WriteLine($"Port: {port}");
-        Console.WriteLine($"Server Address: {serverAddress}");
-        Console.WriteLine($"Waveform: {wave}");
-        Console.WriteLine($"Y range: [{ymin}, {ymax}]");
-        Console.WriteLine("==============================================");
+        var serverAddress = configuration["server"] ?? "https://localhost:5001";
+        var wave = configuration["wave"] ?? "sine";
+        
+        decimal.TryParse(configuration["ymin"], out var ymin);
+        decimal.TryParse(configuration["ymax"], out var ymax);
+        if (ymin == 0 && ymax == 0) { ymin = 0; ymax = 1; }
 
         try
         {
-            if (mode.ToLower() == "server")
+            if (mode == "server")
             {
                 await RunServerAsync(port);
             }
-            else if (mode.ToLower() == "client")
+            else if (mode == "client")
             {
                 using var cts = new CancellationTokenSource();
-                Console.CancelKeyPress += (sender, e) =>
-                {
-                    // Prevent immediate process termination; perform graceful shutdown instead
-                    e.Cancel = true;
-                    if (!cts.IsCancellationRequested)
-                    {
-                        Console.WriteLine("\nCtrl+C pressed. Shutting down client...");
-                        cts.Cancel();
-                    }
-                };
-
+                Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
                 await RunClientAsync(serverAddress, wave, ymin, ymax, cts.Token);
             }
             else
             {
-                Console.WriteLine("Invalid mode. Use --mode=server or --mode=client");
                 ShowUsage();
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Application error: {ex.Message}");
+            Console.WriteLine($"Error: {ex.Message}");
             Environment.Exit(1);
         }
     }
@@ -73,116 +49,49 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder();
         
-        // Your existing gRPC service
         builder.Services.AddGrpc();
-        
-        // WebSocket 
         builder.Services.AddSignalR();
-
-        // Data store for tracking client decimal values
-        builder.Services.AddSingleton<Services.DataStore>();
         
         builder.Services.AddCors(options =>
         {
-            options.AddPolicy("AllowFrontend", policy =>
+            options.AddDefaultPolicy(policy =>
             {
-                policy.WithOrigins(
-                        "http://localhost:5173",  // Vue dev server
-                        "http://localhost:5174",  // Alt Vue dev server
-                        "http://localhost:3000",  // Docker frontend
-                        "http://frontend:80"      // Docker internal network
-                      )
+                policy.WithOrigins("http://localhost:5173")
                       .AllowAnyHeader()
                       .AllowAnyMethod()
                       .AllowCredentials();
             });
         });
 
-        // Configure Kestrel to support both gRPC (HTTP/2) and WebSocket (HTTP/1.1)
         builder.Services.Configure<KestrelServerOptions>(options =>
         {
-            // Check if running in Docker (Production environment)
-            if (builder.Environment.IsProduction())
-            {
-                // HTTP endpoint for health and SignalR
-                options.ListenAnyIP(int.Parse(port), o => o.Protocols = HttpProtocols.Http1AndHttp2);
-                // HTTPS endpoint dedicated to gRPC over HTTP/2
-                options.ListenAnyIP(5001, o =>
-                {
-                    o.UseHttps();
-                    o.Protocols = HttpProtocols.Http2;
-                });
-            }
-            else
-            {
-                // HTTP endpoint for health and SignalR
-                options.ListenLocalhost(int.Parse(port), o => o.Protocols = HttpProtocols.Http1AndHttp2);
-                // HTTPS endpoint dedicated to gRPC over HTTP/2
-                options.ListenLocalhost(5001, o =>
-                {
-                    o.UseHttps();
-                    o.Protocols = HttpProtocols.Http2;
-                });
-            }
+            var portNum = int.Parse(port);
+            options.ListenLocalhost(portNum, o => o.Protocols = HttpProtocols.Http1AndHttp2);
+            options.ListenLocalhost(5001, o => { o.UseHttps(); o.Protocols = HttpProtocols.Http2; });
         });
         
-        // Only set URLs for development - let Docker environment variable take precedence
-        if (!builder.Environment.IsProduction())
-        {
-            // Keep HTTP on the chosen port for health checks and SignalR UI
-            builder.WebHost.UseUrls($"http://localhost:{port}");
-        }
+        builder.WebHost.UseUrls($"http://localhost:{port}");
         
         var app = builder.Build();
-        // Log endpoints for convenience
-        Console.WriteLine($"gRPC (HTTPS/2) endpoint at: https://localhost:5001");
-        app.UseCors("AllowFrontend");
+        
+        app.UseCors();
         app.MapGrpcService<CommunicationServiceImpl>();
-        app.MapHub<ChatWebSocketHub>("/chathub");
+        app.MapHub<DataHub>("/chathub");
         
-        // ADD health check endpoint
-        app.MapGet("/health", () => new { Status = "Healthy", Server = "gRPC Chat Demo" });
-        
-        Console.WriteLine($"gRPC Server starting on port {port}...");
-        Console.WriteLine($"WebSocket endpoint available at: ws://localhost:{port}/chathub");
-        Console.WriteLine($"Health check available at: http://localhost:{port}/health");
-        
+        Console.WriteLine($"Server started on port {port}");
         await app.RunAsync();
     }
 
     private static async Task RunClientAsync(string serverAddress, string wave, decimal ymin, decimal ymax, CancellationToken cancellationToken)
     {
-        var services = new ServiceCollection();
-        services.AddLogging(configure => configure.AddConsole());
-        services.AddSingleton<GrpcClientService>();
-
-        var serviceProvider = services.BuildServiceProvider();
-        var clientService = serviceProvider.GetRequiredService<GrpcClientService>();
-
-        Console.WriteLine($"Starting gRPC client, connecting to {serverAddress}...");
-        
-        await clientService.RunBidirectionalCommunicationAsync(serverAddress, wave, ymin, ymax, cancellationToken);
-        
-        Console.WriteLine("Client stopped.");
+        var clientService = new GrpcClientService();
+        await clientService.RunClientStreamingAsync(serverAddress, wave, ymin, ymax, cancellationToken);
     }
 
     private static void ShowUsage()
     {
-        Console.WriteLine();
         Console.WriteLine("Usage:");
-        Console.WriteLine("  Server mode:");
-        Console.WriteLine("    dotnet run --mode=server [--port=5000]");
-        Console.WriteLine("    - Starts gRPC server + WebSocket for browser clients");
-        Console.WriteLine();
-        Console.WriteLine("  Client mode:");
-        Console.WriteLine("    dotnet run --mode=client [--server=https://localhost:5000] [--wave=sine] [--ymin=0] [--ymax=1]");
-        Console.WriteLine("    - Connects as gRPC client for testing");
-        Console.WriteLine();
-        Console.WriteLine("Examples:");
-        Console.WriteLine("  dotnet run --mode=server --port=5001");
-        Console.WriteLine("  dotnet run --mode=client --server=https://localhost:5001 --wave=sine --ymin=-1 --ymax=5");
-        Console.WriteLine();
-        Console.WriteLine("Note: This demo uses bidirectional streaming for real-time communication.");
-        Console.WriteLine("      Browser clients connect via WebSocket, console clients via gRPC.");
+        Console.WriteLine("  Server: dotnet run --mode=server [--port=5000]");
+        Console.WriteLine("  Client: dotnet run --mode=client [--server=https://localhost:5001] [--wave=sine] [--ymin=0] [--ymax=1]");
     }
 }

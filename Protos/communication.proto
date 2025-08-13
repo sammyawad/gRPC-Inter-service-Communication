@@ -1,40 +1,22 @@
-//https://protobuf.dev/programming-guides/proto3/
 syntax = "proto3";
 
 option csharp_namespace = "GrpcService.Protos";
 
 package communication;
 
-// Service definition for bidirectional streaming communication
+import "google/protobuf/empty.proto";
+
 service CommunicationService {
-  // Bidirectional streaming RPC for real-time chat
-  rpc Chat (stream ChatMessage) returns (stream ChatMessage);
-  
-  // Health check endpoint
-  rpc HealthCheck (Empty) returns (HealthResponse);
+  // Client-streaming: clients send data points; server returns Empty when stream completes
+  rpc SendData (stream ChatMessage) returns (google.protobuf.Empty);
 }
 
-// Message definitions
 message ChatMessage {
   string user_id = 1;
   string message = 2;
   int64 timestamp = 3;
-  
-  // Decimal value represented as a string to avoid floating point errors.
-  // Supports arbitrary numeric ranges with high precision.
-  // The string should be formatted using US culture (e.g., "0.123456789").
   string precise_fraction = 4;
-  
-  // Optional: Client's configured Y-axis range
-  string y_min = 5;  // Minimum Y value configured for this client
-  string y_max = 6;  // Maximum Y value configured for this client
+  string y_min = 5;
+  string y_max = 6;
 }
 
-message HealthResponse {
-  string status = 1;
-  string server_id = 2;
-  int64 timestamp = 3;
-}
-
-message Empty {
-}
